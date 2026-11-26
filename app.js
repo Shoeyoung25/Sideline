@@ -585,7 +585,7 @@
       play.beats[i].forEach(function (a) {
         var p0 = st.pos[a.s]; function px(w) { return w ? w.map(function (q) { return [X(q[0]), Y(q[1])]; }) : null; }
         if ((a.k === 'drv' || a.k === 'lay') && hoA && hoA.to === a.s) p0 = st.pos[hoA.s]; // he starts from where he took the handoff
-        if (a.k === 'pass') arrow(ctx, X(p0[0]), Y(p0[1]), X(en.pos[a.to][0]), Y(en.pos[a.to][1]), 'pass', s);
+        if (a.k === 'pass') { var pf = play.beats[i].some(function (q) { return (q.k === 'drv' || q.k === 'lay') && q.s === a.s; }) ? en.pos[a.s] : p0; arrow(ctx, X(pf[0]), Y(pf[1]), X(en.pos[a.to][0]), Y(en.pos[a.to][1]), 'pass', s); }
         else if (a.k === 'sh') { var sp = en.pos[a.s]; arrow(ctx, X(sp[0]), Y(sp[1]), X(0), Y(5.25), 'sh', s); }
         else if (a.k === 'ho') { // receiver runs to the giver, two short bars mark the exchange
           var r0 = st.pos[a.to]; arrow(ctx, X(r0[0]), Y(r0[1]), X(p0[0]), Y(p0[1]), 'ho', s, px(wayOf(a, r0, p0)));
@@ -686,13 +686,13 @@
     function isGo(q) { return q.k === 'drv' || q.k === 'lay'; }
     // who has the ball once this step's pass or handoff is done, and where he gets it
     function cur() { var b = beat(), hd = st().ball; if (b) b.forEach(function (a) { if (a.k === 'pass' || a.k === 'ho') hd = a.to; }); return hd; }
-    function ballPt() { var b = beat(), s0 = st(), pt = s0.pos[s0.ball]; if (b) b.forEach(function (a) { if (a.k === 'ho') pt = s0.pos[a.s]; else if (a.k === 'pass') pt = s0.pos[a.to]; }); return pt; }
+    function ballPt() { var b = beat(), s0 = st(), pt = s0.pos[s0.ball]; if (b) b.forEach(function (a) { if (a.k === 'ho') pt = s0.pos[a.s]; else if (a.k === 'pass') { pt = s0.pos[a.to]; b.forEach(function (q) { if ((q.k === 'mv' || q.k === 'scr') && q.s === a.to) pt = [q.x, q.y]; }); } }); return pt; }
     function setAct(a) {
       var b = beat(); if (!b) return;
       for (var i = b.length - 1; i >= 0; i--) {
         var q = b[i], kill;
-        if (a.k === 'pass' || a.k === 'ho') kill = q.k === 'pass' || q.k === 'ho' || isGo(q) || q.k === 'sh' || (a.k === 'ho' && isMove(q) && (q.s === a.s || q.s === a.to));
-        else if (isGo(a)) kill = isGo(q) || (isMove(q) && q.s === a.s);
+        if (a.k === 'pass' || a.k === 'ho') kill = q.k === 'pass' || q.k === 'ho' || (isGo(q) && !(a.k === 'pass' && q.s === a.s)) || q.k === 'sh' || (a.k === 'ho' && isMove(q) && (q.s === a.s || q.s === a.to));
+        else if (isGo(a)) kill = (isGo(q) && (q.s === a.s || !b.some(function (z) { return z.k === 'pass' && z.s === q.s; }))) || (isMove(q) && q.s === a.s);
         else if (a.k === 'sh') kill = q.k === 'sh';
         else kill = isMove(q) && q.s === a.s;
         if (kill) b.splice(i, 1);
@@ -741,10 +741,12 @@
         var t = (now - t0) / 1000, k = 0; while (k < tl.length && t > tl[k].dur) { t -= tl[k].dur; k++; }
         if (k >= tl.length) { ed.anim = 0; redraw(); return; }
         var e = tl[k], u = Math.min(1, t / (e.dur - 0.35)), pos = e.lines.map(function (ln) { return along(ln, u); }), bp;
-        if (e.pass) { var pu = Math.min(1, t / 0.4); bp = [pos[e.pass.s][0] + (pos[e.pass.to][0] - pos[e.pass.s][0]) * pu, pos[e.pass.s][1] + (pos[e.pass.to][1] - pos[e.pass.s][1]) * pu]; }
+        var lateP = e.pass && play.beats[k].some(function (q) { return ((q.k === 'mv' || q.k === 'scr') && q.s === e.pass.to) || ((q.k === 'drv' || q.k === 'lay') && q.s === e.pass.s); }), pt0 = lateP ? Math.max(0, e.dur - 0.35 - 0.4) : 0;
+        if (e.pass && t < pt0) bp = pos[e.pass.s];
+        else if (e.pass) { var pu = Math.min(1, (t - pt0) / 0.4); bp = [pos[e.pass.s][0] + (pos[e.pass.to][0] - pos[e.pass.s][0]) * pu, pos[e.pass.s][1] + (pos[e.pass.to][1] - pos[e.pass.s][1]) * pu]; }
         else if (e.ho) bp = Math.hypot(pos[e.ho.to][0] - e.st.pos[e.ho.s][0], pos[e.ho.to][1] - e.st.pos[e.ho.s][1]) < 2.6 || e.took ? (e.took = 1, pos[e.ho.to]) : pos[e.ho.s];
         else bp = pos[e.st.ball];
-        if (e.pass && t >= 0.4) bp = pos[e.pass.to];
+        if (e.pass && t >= pt0 + 0.4) bp = pos[e.pass.to];
         if (e.shot && t > e.dur - 0.35) { var su = Math.min(1, (t - (e.dur - 0.35)) / 0.3), sp = pos[e.en.ball]; bp = [sp[0] + (0 - sp[0]) * su, sp[1] + (5.25 - sp[1]) * su]; }
         ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#dcae74'; ctx.fillRect(0, 0, cv.width, cv.height); drawHalf(ctx, s);
         var r = Math.max(5, s * 1.9);
@@ -854,7 +856,7 @@
       if (tool === 'pass') {
         if (hoB) ed.msg = 'This step already has a handoff. Add the pass in the next step.';
         else if (s === hold) ed.msg = wasAuto ? (hold + 1) + ' has the ball. Drag him to dribble, tap a teammate to pass, tap the rim to shoot.' : (hold + 1) + ' has the ball. Tap the player he passes to.';
-        else { setAct({ k: 'pass', s: hold, to: s }); ed.msg = (s + 1) + ' gets the pass. He can drive, lay it in or shoot in this same step.'; }
+        else { setAct({ k: 'pass', s: hold, to: s }); var cuts = b.some(function (q) { return (q.k === 'mv' || q.k === 'scr') && q.s === s; }); ed.msg = cuts ? (s + 1) + ' gets the pass as he arrives at the end of his cut. If he is open he finishes, or add Shoot or options.' : (s + 1) + ' gets the pass. He can drive, lay it in or shoot in this same step.'; }
         build(); return;
       }
       if (tool === 'ho') {

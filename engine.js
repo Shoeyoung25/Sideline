@@ -466,22 +466,26 @@
   Sim.prototype.startBeat = function (i) {
     var o = this.o, off = this.offTeam, movers = [], k, a, p, w, H;
     var ord = { pass: 0, ho: 0.5, drv: 1, lay: 1, sh: 2, opt: 2.5, scr: 3, mv: 4 }, b = o.beats[i].slice().sort(function (x, y) { return ord[x.k] - ord[y.k]; });
-    var recv = -1, chain = false; o.movers = movers; o.defer = null; o.endSh = -1; o.opt = null;
+    var recv = -1, chain = false, mvK = {}, expl = {}; o.movers = movers; o.defer = null; o.endSh = -1; o.opt = null; o.late = null; o.caught = -1;
+    for (k = 0; k < b.length; k++) { if (b[k].k === 'mv' || b[k].k === 'scr' || b[k].k === 'drv' || b[k].k === 'lay') mvK[b[k].s] = b[k].k; if (b[k].k === 'drv' || b[k].k === 'lay' || b[k].k === 'sh') expl[b[k].s] = 1; }
     for (k = 0; k < b.length; k++) { if (b[k].k === 'pass' || b[k].k === 'ho') recv = b[k].to; if (b[k].k === 'pass' || b[k].k === 'ho' || b[k].k === 'drv' || b[k].k === 'lay') chain = true; }
     for (k = 0; k < b.length; k++) {
       a = b[k]; p = this.op(a.s); H = this.holder();
       if (a.k === 'pass') {
         if (H !== p) { o.why = p.name + ' does not have the ball'; return false; }
         var T = this.op(a.to); if (!T || T === p) return false;
+        if (!expl[a.to] && !o.gen) o.caught = a.to; // nothing drawn for him after the catch: he reads it himself
+        // a pass to a cutter is led to his spot, and a driver passes at the end of his drive
+        if (mvK[a.to] === 'mv' || mvK[a.to] === 'scr' || mvK[a.s] === 'drv' || mvK[a.s] === 'lay') { o.late = { s: a.s, to: a.to, t: 0, then: [] }; continue; }
         if (this.passRisk(H, T) > (o.gen ? 0.22 : 0.3)) { o.why = 'the pass to ' + T.name + ' is covered'; this.tag(7, this.guardOf(T)); return false; }
         if (!this.pass(H, T)) return true; // turnover ends it
       } else if (a.k === 'ho') {
         if (H !== p) { o.why = p.name + ' does not have the ball'; return false; }
-        var R = this.op(a.to); if (!R || R === p) return false;
+        var R = this.op(a.to); if (!R || R === p) return false; if (!expl[a.to] && !o.gen) o.caught = a.to;
         R.tx = p.x; R.ty = p.y; R.sp = 0.9; R.scrUntil = 0; R.scrPending = false; this.setPath(R, a.w || a.c);
         p.tx = p.x; p.ty = p.y; o.ho = { g: p, r: R };
       } else if (a.k === 'drv' || a.k === 'lay') {
-        if (a.s === recv) o.defer = a; // he gets the ball in this same step, then goes
+        if (a.s === recv && !(o.late && o.late.s === a.s)) o.defer = a; // he gets the ball in this same step, then goes
         else if (H !== p) { o.why = p.name + ' does not have the ball'; return false; }
         else if (!this.doDrive(a, p)) return true;
       } else if (a.k === 'sh') {
@@ -490,6 +494,7 @@
       } else if (a.k === 'opt') {
         o.opt = { list: a.list || [], t: 0 };
       } else if (a.k === 'mv' || a.k === 'scr') {
+        if (o.late && o.late.s === a.s) { o.late.then.push(a); continue; } // the passer moves once the ball is gone
         w = h2w(off, a.x, a.y); p.tx = clamp(w.x, 1.5, 48.5); p.ty = clamp(w.y, 1.5, 92.5); p.sp = a.k === 'mv' ? 0.92 : 0.85; p.scrUntil = 0; p.scrPending = a.k === 'scr'; this.setPath(p, a.w || a.c);
         if (a.k === 'mv' && p !== H && dist(p.x, p.y, p.tx, p.ty) > 8) {
           var cg = this.guardOf(p), toRim = pd(p, hoop(off)) - dist(p.tx, p.ty, hoop(off).x, hoop(off).y) > 5;
@@ -513,18 +518,36 @@
         if (!(o.defer && o.defer.s === hr.slot)) { hr.tx = hr.x; hr.ty = hr.y; hr.path = null; return; }
       } else { if (el > 3.4) { o.ho = null; o.why = 'the handoff never got there'; this.breakPlay(); } return; }
     }
+    if (o.late) { // lead pass: released so the ball and the cutter get to the spot together
+      var L = o.late, Pp = this.op(L.s), Tt = this.op(L.to), pgo = Pp.driving || Pp.lay, pleft = pgo ? dist(Pp.x, Pp.y, Pp.tx, Pp.ty) : 0, tleft = dist(Tt.x, Tt.y, Tt.tx, Tt.ty);
+      var lead = Math.max(1.5, dist(Pp.x, Pp.y, Tt.tx, Tt.ty) * 0.3), ready = (pleft < 1.5 && tleft <= lead && !Tt.scrPending) || el > 5;
+      if (!ready) return;
+      if (Pp.lay) { Pp.lay = false; if (Pp === H && pd(Pp, hp) < 6.8 && this.shotInfo(Pp).ev >= 0.78) { o.late = null; o.opt = null; this.shoot(Pp); return; } }
+      if (H !== Pp) { o.late = null; o.why = Pp.name + ' does not have the ball'; this.breakPlay(); return; }
+      if (this.passRisk(H, Tt) > 0.3) { if (!L.t) L.t = this.t; if (this.t - L.t < 0.7 && this.sc > 3) return; o.late = null; o.why = 'the pass to ' + Tt.name + ' is covered'; this.tag(7, this.guardOf(Tt)); this.breakPlay(); return; }
+      o.late = null; Pp.driving = false;
+      if (!this.pass(H, Tt)) return;
+      for (k = 0; k < L.then.length; k++) { var la = L.then[k], lw = h2w(this.offTeam, la.x, la.y); Pp.tx = clamp(lw.x, 1.5, 48.5); Pp.ty = clamp(lw.y, 1.5, 92.5); Pp.sp = 0.92; Pp.scrPending = la.k === 'scr'; this.setPath(Pp, la.w || la.c); if (o.movers.indexOf(Pp) < 0) o.movers.push(Pp); }
+      o.bt = this.t - 0.1; return;
+    }
     if (o.defer) { // the new ball handler goes straight into his drive, no pause
       if (H && H.slot === o.defer.s) { var da = o.defer; o.defer = null; if (!this.doDrive(da, H)) return; o.bt = this.t; return; }
       if (el > 3.4) { o.defer = null; this.breakPlay(); } return;
     }
     for (k = 0; k < o.movers.length; k++) { var p = o.movers[k]; if (dist(p.x, p.y, p.tx, p.ty) > 1.3) all = false; if (p.scrPending) all = false; }
     var cap = 3.2; for (k = 0; k < o.movers.length; k++) if (o.movers[k].path) cap = Math.max(cap, o.movers[k].path.len / 9 + 1.2);
+    if (this.ball.fly && el < 6) return; // let the catch happen before the step is judged
     if ((all && el >= o.minT) || el > Math.min(cap, 6)) {
       o.movers.forEach(function (q) { q.driving = false; });
       // end of the step, in order: finish the layup, take the drawn shot, then look at the options
       for (k = 0; k < o.movers.length; k++) { var m = o.movers[k]; if (m.lay) { m.lay = false; if (m === H && pd(m, hp) < 6.8 && (this.sc <= 5 || this.shotInfo(m).ev >= 0.78)) { o.opt = null; this.shoot(m); return; } } } // a layup goes up only if it is there
       if (o.endSh >= 0 && H && H.slot === o.endSh) { o.endSh = -1; if (o.gen || this.sc <= 6 || this.shotInfo(H).ev >= 0.45) { o.opt = null; this.shoot(H); return; } }
       o.endSh = -1;
+      if (o.caught >= 0 && H && H.slot === o.caught && !o.opt) { // caught it with nothing drawn next: finish if it is clearly there
+        var ci = this.shotInfo(H), atRim = pd(H, hp) < 7;
+        if (ci.ev >= (atRim ? 1.02 : 1.1)) { o.caught = -1; this.tag(6, H); this.ev(H.name + ' is open and ' + (atRim ? 'goes straight up.' : 'lets it fly.'), 'play'); this.shoot(H); return; }
+      }
+      o.caught = -1;
       if (o.opt) { if (!o.opt.t) o.opt.t = this.t; if (this.tryOptions()) return; if (this.t - o.opt.t < 0.45) return; o.opt = null; }
       o.bi++;
       if (!o.beats || o.bi >= o.beats.length) { o.beats = null; o.think = 0.22; if (!o.gen) o.pendingRead = true; o.gen = false; return; }
