@@ -144,7 +144,34 @@
   function noop() {}
 
   // ---------- two phones ----------
+  // Two-phone link over Firebase Realtime Database (used on the hosted page). Each phone keeps one small record
+  // under rooms/<code>/<its id>; values are stored as JSON text so empty lists survive the round trip.
+  var FB = { apiKey: 'AIzaSyASIwaxJLMKH_OrkbPwFTeAykEgccJzNZ8', authDomain: 'sideline-ba3b3.firebaseapp.com', databaseURL: 'https://sideline-ba3b3-default-rtdb.firebaseio.com',
+    projectId: 'sideline-ba3b3', storageBucket: 'sideline-ba3b3.firebasestorage.app', messagingSenderId: '124150828119', appId: '1:124150828119:web:7baa6af5b83980fe492712' };
+  function fbRoom() {
+    var fb = window.firebase; if (!fb || typeof fb.database !== 'function') return null;
+    var db; try { if (!(fb.apps && fb.apps.length)) fb.initializeApp(FB); db = fb.database(); } catch (e) { return null; }
+    var myId = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    try { db.ref('.info/connected').on('value', function (sn) { var c = !!sn.val(); if (c !== ui.conn) { ui.conn = c; if (S.phase === 'lobby' || S.phase === 'joining' || S.phase === 'home') render(); } }); } catch (e) { /* status only */ }
+    return { join: function (name) {
+      var ref = db.ref('rooms/' + name), mine = ref.child(myId), last = {};
+      try { mine.onDisconnect().remove(); } catch (e) { /* best effort cleanup */ }
+      return Promise.resolve({
+        presence: function (patch) { var out = {}, k; for (k in patch) out[k] = patch[k] == null ? null : JSON.stringify(patch[k]); return Promise.resolve(mine.update(out)); },
+        onPeers: function (fn) {
+          ref.on('value', function (sn) {
+            var v = sn.val() || {}, peers = [], ids = {};
+            Object.keys(v).forEach(function (id) { var pr = {}, rec = v[id] || {}; Object.keys(rec).forEach(function (k) { try { pr[k] = JSON.parse(rec[k]); } catch (e) { /* skip bad value */ } }); ids[id] = 1; peers.push({ peer: id, isMe: id === myId, presence: pr }); });
+            var left = Object.keys(last).filter(function (id) { return !ids[id]; }).map(function (id) { return { peer: id }; }); last = ids;
+            fn({ peers: peers, left: left });
+          }, function () { ui.err = 'The game server refused the connection. Check the database rules.'; if (S.phase === 'joining' || S.phase === 'lobby') { S = fresh(); } render(); });
+          return function () { ref.off('value'); };
+        }
+      });
+    } };
+  }
   function netInit() {
+    var fr = fbRoom(); if (fr) { Net.room = fr; Net.fb = true; return; }
     if (!window.claude || typeof window.claude.use !== 'function') return;
     window.claude.use('room').then(function (room) { if (room) { Net.room = room; if (S.phase === 'home') render(); } }).catch(noop);
     window.claude.use('sample').then(function (s) { Net.sample = s || null; }).catch(noop);
@@ -206,7 +233,7 @@
     sc.textContent = '';
     if (S.phase === 'home') add(sc, viewHome());
     else if (S.phase === 'lobby') add(sc, viewLobby());
-    else if (S.phase === 'joining') add(sc, h('.center', h('h2', { text: 'Joining game ' + S.code }), h('p.muted', { text: 'Waiting for the host phone. Keep this page open.' })));
+    else if (S.phase === 'joining') add(sc, h('.center', h('h2', { text: 'Joining game ' + S.code }), h('p.muted', { text: Net.fb && ui.conn === false ? 'Connecting to the game server...' : 'Waiting for the host phone. Check the code if nothing happens.' }), h('button.btn', { text: 'Back', onclick: function () { S = fresh(); auth = true; me = 0; render(); } })));
     else if (S.phase === 'draft') add(sc, viewDraft());
     else if (S.phase === 'coach') add(sc, viewCoach());
     else if (S.phase === 'final') add(sc, viewFinal());
@@ -236,7 +263,7 @@
         h('div', h('span', { text: '10 possessions, 5 each. Tied at the end means one more each.' })))),
       h('button.btn.primary', { text: 'Play on one phone', onclick: function () { auth = true; me = 0; S.mode = 'local'; startDraft(); } }),
       Net.room ? h('.card', h('h3', { text: 'Two phones' }),
-        h('p.note', { text: 'Both coaches open this page signed in. One hosts, the other joins with the code.' }),
+        h('p.note', { text: Net.fb ? 'Both coaches open this link on their own phone. One hosts, the other joins with the code.' : 'Both coaches open this page signed in. One hosts, the other joins with the code.' }),
         h('button.btn', { text: 'Host a game', onclick: hostGame }),
         h('.row', h('.grow', code), h('button.btn', { text: 'Join', onclick: function () { joinGame(code.value); } })))
         : h('p.note', { text: 'Two phone play appears here when this page can open a live room. One phone works everywhere: pass it between coaches.' }),
@@ -247,7 +274,7 @@
     return h('.center',
       h('h2', { text: 'Game code' }), h('.code', { text: S.code }),
       h('p', { text: 'The other coach opens this page, taps Join and enters the code. You are ' + TEAM[0] + ', they are ' + TEAM[1] + '.' }),
-      h('.banner', { text: S.guest ? 'The other coach is here.' : 'Waiting for the other coach...' }),
+      h('.banner', { text: S.guest ? 'The other coach is here.' : (Net.fb && ui.conn === false ? 'Connecting to the game server...' : 'Waiting for the other coach...') }),
       h('button.btn.primary', { text: 'Start the draft', disabled: !S.guest, onclick: startDraft }));
   }
 
