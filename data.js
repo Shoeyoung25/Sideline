@@ -80,26 +80,57 @@
   ];
 
   var SIZE = { PG: 1, SG: 2, SF: 3, PF: 4, C: 5 };
-  var SPD = { PG: 92, SG: 88, SF: 82, PF: 74, C: 66 };
+  var SPD = { PG: 86, SG: 84, SF: 80, PF: 74, C: 66 };
   function cl(v) { return Math.max(40, Math.min(99, Math.round(v))); }
 
-  function rate(s) {
-    var size = SIZE[s.pos];
+  // Athletic nudges the box score cannot see: [speed, strength]. These are judgment calls, not stats.
+  var ATH = { 'Tyrese Maxey': [9, 0], 'Shai Gilgeous-Alexander': [2, 0], 'Nikola Jokić': [-6, 0], 'Victor Wembanyama': [6, -10], 'Giannis Antetokounmpo': [10, 0],
+    'Zion Williamson': [8, 4], 'Amen Thompson': [10, 0], 'Luka Dončić': [-12, 6], 'James Harden': [-10, 4], 'Stephen Curry': [-2, -2], 'LeBron James': [2, 8],
+    'Joel Embiid': [-4, 0], 'Alperen Şengün': [-3, 0], 'Kevin Durant': [0, -6], 'Anthony Davis': [4, -2], 'Jalen Brunson': [-5, 3], 'Donovan Mitchell': [3, 0],
+    'Kyrie Irving': [0, -2], 'Cooper Flagg': [3, 0], 'Scottie Barnes': [3, 0], 'Bam Adebayo': [6, 0], 'Evan Mobley': [6, -6], 'Trae Young': [0, -6], 'Duncan Robinson': [-3, -4] };
+
+  function rate(s, name) {
+    var size = SIZE[s.pos], ath = ATH[name] || [0, 0];
     var adj3 = (s.p3 * s.a3 + 0.345 * 3) / (s.a3 + 3);
     var guard = s.pos === 'PG' ? 8 : s.pos === 'SG' ? 5 : s.pos === 'SF' ? 2 : 0;
-    var quick = size <= 3 ? 6 : size === 4 ? 2 : -4;
+    var quick = size <= 3 ? 6 : size === 4 ? 2 : -4, astTo = s.ast / Math.max(1, s.tov);
     var r = {
+      // scoring
       ins: cl(55 + (s.fg - 0.46) * 120 + s.fta * 1.6 + s.pts * 0.45 + (size >= 4 ? 3 : 0)),
+      mid: cl(58 + (s.ft - 0.75) * 110 + (adj3 - 0.345) * 110 + s.pts * 0.55 + (size <= 3 ? 2 : 0)),
       three: cl(62 + (adj3 - 0.345) * 320 + Math.min(s.a3, 10) * 1.2),
-      ply: cl(50 + s.ast * 4.2 - s.tov * 1.5 + guard + s.pts * 0.3),
-      reb: cl(45 + s.trb * 3.6 + size),
-      pd: cl(58 + s.stl * 9 + quick + s.blk * 2),
+      ftr: cl(s.ft * 100),
+      // playmaking
+      hnd: cl(52 + guard * 1.6 + s.ast * 2.2 + s.pts * 0.45 - s.tov - (size >= 4 ? (size - 3) * 5 : 0) + s.fta * 0.8),
+      pas: cl(48 + s.ast * 5.2 + astTo * 3 + guard * 0.5),
+      // defense
+      pd: cl(56 + s.stl * 8 + quick + s.blk * 2 + s.mp * 0.2),
       rim: cl(40 + s.blk * 13 + size * 4 + s.trb * 0.8),
-      spd: SPD[s.pos], size: size, ft: s.ft, fta: s.fta
+      stl: cl(40 + s.stl * 22 + quick),
+      blk: cl(38 + s.blk * 16 + size * 4),
+      reb: cl(45 + s.trb * 3.6 + size),
+      // athleticism
+      spd: cl(SPD[s.pos] + s.stl * 2 - (s.trb > 9 ? 3 : 0) + ath[0]),
+      str: cl(50 + size * 6 + s.trb + s.fta * 0.8 - (s.pos === 'PG' ? 2 : 0) + ath[1]),
+      // mental
+      oiq: cl(55 + astTo * 4 + (s.fg - 0.45) * 70 + s.pts * 0.5 + s.mp * 0.25 - s.tov * 1.2),
+      diq: cl(48 + (s.stl + s.blk) * 7 + s.trb * 0.6 + s.mp * 0.3),
+      cmp: cl(50 + (s.ft - 0.7) * 80 + s.pts * 0.6 + s.mp * 0.3 - s.tov * 1.5),
+      size: size, ft: s.ft, fta: s.fta
     };
-    r.ovr = Math.round(r.ins * 0.26 + r.three * 0.2 + r.ply * 0.2 + r.reb * 0.1 + r.pd * 0.12 + r.rim * 0.12);
+    r.ply = Math.round(r.hnd * 0.5 + r.pas * 0.5);
+    r.ovr = cl(55 + 1.85 * (-60 + r.ins * 0.14 + r.mid * 0.08 + r.three * 0.13 + r.hnd * 0.10 + r.pas * 0.08 + r.oiq * 0.08 + r.pd * 0.09 + r.rim * 0.07 + r.stl * 0.03 + r.blk * 0.03 + r.diq * 0.06 + r.reb * 0.06 + r.spd * 0.03 + r.str * 0.02));
     return r;
   }
+
+  // attribute groups for display, 2K style
+  BB.ATTRS = [
+    ['Scoring', [['ins', 'Close shot'], ['mid', 'Mid-range'], ['three', 'Three-point'], ['ftr', 'Free throw']]],
+    ['Playmaking', [['hnd', 'Ball handle'], ['pas', 'Pass accuracy']]],
+    ['Defense', [['pd', 'Perimeter D'], ['rim', 'Interior D'], ['stl', 'Steal'], ['blk', 'Block'], ['reb', 'Rebounding']]],
+    ['Athleticism', [['spd', 'Speed'], ['str', 'Strength']]],
+    ['Mental', [['oiq', 'Offensive IQ'], ['diq', 'Defensive IQ'], ['cmp', 'Composure']]]
+  ];
 
   BB.players = RAW.map(function (line, i) {
     var f = line.split('|');
@@ -109,7 +140,7 @@
     };
     var parts = f[0].split(' ');
     var last = parts.slice(1).join(' ').replace(/ (Jr\.|Sr\.|II|III)$/, '');
-    return { id: i, name: f[0], last: last, team: f[1], pos: f[2], s: s, r: rate(s) };
+    return { id: i, name: f[0], last: last, team: f[1], pos: f[2], s: s, r: rate(s, f[0]) };
   });
   // disambiguate shared last names for court labels
   (function () {
@@ -138,16 +169,19 @@
       beats: [[A('scr', 4, 3.5, 29)], [A('drv', 0, 10, 18), A('mv', 4, -9, 27)]] },
     { id: 'horns', name: 'Horns', group: 'Pick and roll', note: 'Bigs at both elbows. 4 screens and rolls, 5 pops.',
       setup: BB.FORM['Horns'], ball: 0,
-      beats: [[A('scr', 3, -3.5, 29)], [A('drv', 0, -9, 17), A('mv', 3, 1.5, 8), A('mv', 4, 7, 27)]] },
+      beats: [[A('scr', 3, -3.5, 29)], [A('drv', 0, -9, 17), A('mv', 3, 1.5, 8), A('mv', 4, 7, 27)], [{ k: 'opt', s: 0, list: [{ k: 'pass', to: 3 }, { k: 'pass', to: 4 }, { k: 'sh' }] }]] },
     { id: 'pin', name: 'Pin down', group: 'Off-ball screens', note: '5 screens down for 2, who comes up to the wing for a shot.',
       setup: [[0, 30], [-22.5, 6.5], [18.5, 22], [22.5, 6.5], [-12, 14]], ball: 0,
       beats: [[A('scr', 4, -18, 11)], [A('mv', 1, -17, 23.5)], [A('pass', 0, 1)], [A('sh', 1)]] },
     { id: 'flare', name: 'Flare screen', group: 'Off-ball screens', note: '4 screens away from the ball and 3 fades to the corner side for a three.',
       setup: [[-8, 30], [-20, 20], [10, 28], [16, 20], [-7.5, 9.5]], ball: 0,
       beats: [[A('scr', 3, 13, 25)], [A('mv', 2, 21, 17)], [A('pass', 0, 2)], [A('sh', 2)]] },
-    { id: 'dho', name: 'Handoff', group: 'Handoffs', note: '1 passes to 5 at the elbow, 2 takes the handoff going downhill.',
+    { id: 'dho', name: 'Handoff', group: 'Handoffs', note: '1 passes to 5 at the elbow, 2 curls in for the handoff and attacks.',
       setup: [[0, 31], [19, 21], [-22.5, 6.5], [22.5, 6.5], [7, 21]], ball: 0,
-      beats: [[A('pass', 0, 4), A('mv', 0, -14, 26)], [A('mv', 1, 9.5, 23)], [A('pass', 4, 1), A('scr', 4, 7, 21)], [A('drv', 1, 1, 12), A('mv', 4, 3, 7.5)]] },
+      beats: [[A('pass', 0, 4), A('mv', 0, -14, 26)], [{ k: 'ho', s: 4, to: 1, c: [14, 26] }], [A('drv', 1, 0, 12), A('mv', 4, 3, 7.5)], [{ k: 'opt', s: 1, list: [{ k: 'sh' }, { k: 'pass', to: 4 }, { k: 'pass', to: 0 }] }]] },
+    { id: 'weave', name: 'Handoff weave', group: 'Handoffs', note: 'Two handoffs across the top to get a guard going downhill.',
+      setup: [[-10, 29], [10, 29], [-22.5, 6.5], [22.5, 6.5], [0, 18]], ball: 0,
+      beats: [[{ k: 'drv', s: 0, x: 0, y: 28 }], [{ k: 'ho', s: 0, to: 1, c: [6, 32] }], [{ k: 'drv', s: 1, x: -9, y: 16, c: [-8, 26] }, A('mv', 4, 5, 8), A('mv', 0, 16, 25)], [{ k: 'opt', s: 1, list: [{ k: 'sh' }, { k: 'pass', to: 4 }, { k: 'pass', to: 0 }] }]] },
     { id: 'gng', name: 'Give and go', group: 'Cuts', note: '1 passes to the wing and cuts hard to the rim for the return pass.',
       setup: BB.FORM['5 out'], ball: 0,
       beats: [[A('pass', 0, 1), A('mv', 0, -2, 7)], [A('pass', 1, 0)], [A('sh', 0)]] },
@@ -178,9 +212,8 @@
         var p = st.pos[a], out = [[A('scr', b, p[0] * 0.85, p[1] + 5)], [A('mv', a, p[0] * 0.8, Math.min(26, p[1] + 16))]];
         if (st.ball !== a && st.ball !== b) out.push([A('pass', st.ball, a)]);
         return out; } },
-    { id: 'dho', name: 'Handoff', pick: ['Receiver', 'Passer with the ball'], make: function (a, b, st) {
-        var p = st.pos[b];
-        return [[A('mv', a, p[0] + (st.pos[a][0] > p[0] ? 2.5 : -2.5), p[1] + 2)], [A('pass', b, a), A('scr', b, p[0], p[1])]]; } },
+    { id: 'dho', name: 'Handoff', pick: ['Receiver', 'Passer with the ball'], make: function (a, b) {
+        return [[{ k: 'ho', s: b, to: a }]]; } },
     { id: 'gng', name: 'Give and go', pick: ['Passer with the ball', 'Receiver'], make: function (a, b) {
         return [[A('pass', a, b), A('mv', a, 2, 7)], [A('pass', b, a)]]; } },
     { id: 'back', name: 'Backdoor cut', pick: ['Cutter', 'Passer with the ball'], make: function (a, b, st) {

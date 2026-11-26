@@ -77,7 +77,7 @@
     this.o = { style: po.style || 'motion', tempo: po.tempo || 'set', focus: po.focus == null ? null : po.focus, after: po.after || 'crash',
       plays: plays, pi: -1, beats: null, bi: 0, bt: 0, minT: 0.3, phase: 'adv', think: 0, handler: hd, setup: setup, t0: this.t, arrT: null,
       free: false, gen: false, forced: false, crossed: false, nextTC: this.t + 0.15, fb: -1, drives: 0, passes: 0, lastBallScreen: -9,
-      pendingRead: false, liveQ: null, reset: null, lastStyle: -1, fails: 0 };
+      pendingRead: false, liveQ: null, reset: null, lastStyle: -1, fails: 0, ho: null, opt: null, soc: -1 };
     if (this.wasInbound) this.o.nextTC = this.t + 2.5;
     var style = pdn.style || 'man';
     if (style === 'mix') style = ['man', 'switch', 'zone'][Math.floor(this.rand() * 3)];
@@ -112,7 +112,7 @@
       if (dd < d1) { d2 = d1; n2 = n1; d1 = dd; n1 = q; } else if (dd < d2) { d2 = dd; n2 = q; }
     }
     var pm, pts = isThree ? 3 : 2, pf = 0;
-    function rimC(q, dd2) { return dd2 >= 4.6 ? 0 : (1 - dd2 / 4.6) * clamp(0.10 + (q.r.rim - 50) / 49 * 0.17 + (q.r.size - r.size) * 0.022, 0.03, 0.34); }
+    function rimC(q, dd2) { return dd2 >= 4.6 ? 0 : (1 - dd2 / 4.6) * clamp(0.10 + ((q.r.rim * 0.65 + q.r.blk * 0.35) - 50) / 49 * 0.17 + (q.r.size - r.size) * 0.022, 0.03, 0.34); }
     if (type === 'rim') {
       pm = 0.60 + (r.ins - 75) * 0.006;
       pm -= rimC(n1, d1) + (this.d && this.d.style === 'zone' ? 0.9 : this.d && this.d.help === 'help' ? 0.85 : 0.5) * rimC(n2, d2);
@@ -122,7 +122,7 @@
       var base;
       if (type === 'three') base = 0.352 + (r.three - 70) * 0.0043 - Math.max(0, d - 26) * 0.012;
       else if (type === 'short') base = 0.43 + (r.ins - 75) * 0.004;
-      else base = 0.405 + ((r.ins * 0.45 + r.three * 0.55) - 72) * 0.004;
+      else base = 0.40 + (r.mid - 76) * 0.004;
       var c = 0;
       if (d1 >= 6) c = -0.05;
       else { c = (1 - d1 / 6) * clamp(0.17 + (n1.r.pd - 60) / 40 * 0.07 + (n1.r.size - r.size) * 0.015, 0.07, 0.3); }
@@ -130,6 +130,7 @@
       if (p.dribbled) pm -= 0.035;
       if (type === 'short' && d1 < 3) pf = 0.07 + Math.min(0.06, r.fta * 0.006);
     }
+    if (this.sc < 5) pm -= (99 - r.cmp) / 99 * 0.06; // rushed shots punish shaky players
     pm = clamp(pm, 0.08, 0.92);
     var ev = (1 - pf) * pm * pts + pf * 2 * r.ft;
     return { ev: ev, pm: pm, pts: pts, pf: pf, type: type, d1: d1, n1: n1, dist: d };
@@ -147,7 +148,7 @@
     }
     var make = this.rand() < s.pm;
     (this.shots = this.shots || []).push([s.type, make ? 1 : 0, Math.round(s.d1)]);
-    var blocked = !make && s.type === 'rim' && s.d1 < 3 && this.rand() < 0.3;
+    var blocked = !make && s.type === 'rim' && s.d1 < 3 && this.rand() < 0.14 + s.n1.r.blk / 400;
     this.ball.h = -1;
     this.ball.fly = { type: 'shot', fx: p.x, fy: p.y, tx: hp.x, ty: hp.y, t0: this.t, dur: 0.5 + s.dist / 42, make: make, pts: s.pts, shooter: p.i, label: label, blocked: blocked ? s.n1.name : null, open: s.d1 >= 6 };
     this.crashAndBox(p);
@@ -184,7 +185,7 @@
       var dd = dist(p.x, p.y, bx, by), prox = 1 / (1 + Math.pow(dd / 5.5, 2));
       var tf = p.team === self.offTeam ? (o.after === 'crash' ? 0.62 : 0.5) : (d.after === 'box' ? 1.3 : 1.12) * (d.style === 'zone' ? 0.88 : 1);
       if (p === self.leaker) tf = 0.02;
-      var v = Math.pow(p.r.reb / 70, 2.4) * prox * tf * (p.stun > 0 ? 0.6 : 1) + 0.0005;
+      var v = Math.pow((p.r.reb * 0.85 + p.r.str * 0.15) / 70, 2.4) * prox * tf * (p.stun > 0 ? 0.6 : 1) + 0.0005;
       w.push(v); tot += v;
     });
     var roll = this.rand() * tot, pick = 0;
@@ -193,7 +194,7 @@
     this.ball.reb = null; this.ball.h = p.i; this.ball.x = p.x; this.ball.y = p.y; this.ball.z = 0; p.dribbled = false;
     if (p.team === this.offTeam) {
       this.ev(p.name + ' grabs the offensive rebound.', 'i');
-      this.sc = 14; o.beats = null; o.free = true; o.forced = false; o.gen = false; o.think = 0.4; o.phase = 'run'; o.drives = 0; o.pendingRead = false; o.liveQ = null;
+      this.sc = 14; o.beats = null; o.ho = null; o.opt = null; o.free = true; o.forced = false; o.gen = false; o.think = 0.4; o.phase = 'run'; o.drives = 0; o.pendingRead = false; o.liveQ = null;
       this.offs().forEach(function (q) { q.driving = false; q.post = false; });
     } else {
       this.ev(p.name + ' rebounds.', 'i');
@@ -221,12 +222,12 @@
     var n = 0; this.defs().forEach(function (q) { if (q.stun <= 0 && pd(q, p) < 4) n++; }); return n >= 2;
   };
   Sim.prototype.passRisk = function (H, T) {
-    var d = this.d, l = pd(H, T), risk = 0.005 + l / 1600 + Math.max(0, l - 24) / 220 + (99 - H.r.ply) / 99 * 0.02, self = this;
+    var d = this.d, l = pd(H, T), risk = 0.005 + l / 1600 + Math.max(0, l - 24) / 220 + (99 - H.r.pas) / 99 * 0.028, self = this;
     this.defs().forEach(function (q) {
       if (q.stun > 0.1) return;
       var near = pd(q, H) < 4;
       var sd = segDist(q.x, q.y, H.x, H.y, T.x, T.y, 0.22);
-      if (sd < 2.6 && !near) { var m = (1 - sd / 2.6) * (0.11 + (q.r.pd - 60) / 40 * 0.07); if (d.deny[T.slot] || d.gamble[q.slot] > self.t) m *= 1.7; risk += m; }
+      if (sd < 2.6 && !near) { var m = (1 - sd / 2.6) * (0.11 + ((q.r.stl * 0.6 + q.r.diq * 0.4) - 62) / 40 * 0.07); if (d.deny[T.slot] || d.gamble[q.slot] > self.t) m *= 1.7; risk += m; }
       if (near) risk += 0.012;
     });
     if (this.doubled(H)) risk += 0.06;
@@ -255,9 +256,9 @@
     if (!G) return 0.95;
     if (G.stun > 0.2 || pd(G, H) > 7.5) return 0.92;
     var d = this.d, p;
-    if (post) p = 0.42 + ((H.r.ins + H.r.size * 7) - (G.r.rim + G.r.size * 7)) / 140 - (d.style === 'zone' ? 0.16 : 0);
+    if (post) p = 0.42 + ((H.r.ins + H.r.str * 0.5 + H.r.size * 4) - (G.r.rim + G.r.str * 0.5 + G.r.size * 4)) / 140 - (d.style === 'zone' ? 0.16 : 0);
     else {
-      p = 0.36 + clamp(((H.r.ply * 0.6 + H.r.spd * 0.4) - (G.r.pd * 0.65 + G.r.spd * 0.35)) / 110, -0.17, 0.17);
+      p = 0.36 + clamp(((H.r.hnd * 0.6 + H.r.spd * 0.4) - (G.r.pd * 0.65 + G.r.spd * 0.35)) / 110, -0.17, 0.17);
       var pr = d.ppRule[H.slot] || d.pp[H.slot] || d.press;
       if (d.contest[G.slot] > this.t) p += 0.16; else if (pr === 'tight') p += 0.18; else if (pr === 'sag') p -= 0.2;
       var hp = hoop(this.offTeam), u = unit(G.x, G.y, H.x, H.y);
@@ -274,14 +275,14 @@
     if (d.help === 'help' && d.style !== 'zone') hc = Math.max(hc, 0.11);
     var evb = clamp(p0 - hc - 0.04, 0.2, 0.9) * 2 * 0.88 + 0.12 * 2 * H.r.ft;
     var ev = pb * evb + (1 - pb) * 0.7 - 0.06 - 0.14 * o.drives;
-    if (H.r.ply < 62 && H.r.size >= 4) ev -= 0.15;
+    if (H.r.hnd < 66 && H.r.size >= 4) ev -= 0.15;
     return ev;
   };
   Sim.prototype.startDrive = function (p, tx, ty, post) {
     var o = this.o, G = this.guardOf(p), hp = hoop(this.offTeam);
     o.drives++;
     if (!post) for (var si = 0; si < 5; si++) { var S = this.op(si); if (S !== p && S.scrUntil > this.t && pd(S, p) < 6 && G) { this.applyScreen(G, S, p, p, this.d.style === 'zone'); G = this.guardOf(p); } }
-    var ps = 0.012 + Math.max(0, (G ? G.r.pd - p.r.ply : 0)) / 900 + (this.doubled(p) ? 0.05 : 0);
+    var ps = 0.012 + Math.max(0, (G ? G.r.stl - p.r.hnd : 0)) / 700 + (this.doubled(p) ? 0.05 : 0);
     if (G && pd(G, p) < 6 && this.rand() < ps) { this.turnover(G.name + ' strips ' + p.name + '.', G); return false; }
     var beaten = this.rand() < this.pBeat(p, G, post);
     p.driving = true; p.post = !!post; p.dribbled = true; p.drvEnd = this.t + 2.6; p.scrUntil = 0;
@@ -380,14 +381,15 @@
   Sim.prototype.decide = function (onlyGood) {
     var o = this.o, H = this.holder(), self = this, force = this.sc <= 4.2;
     var thr = force ? -9 : (this.sc > 14 ? 1.07 : this.sc > 8 ? 0.99 : 0.88) - Math.min(0.3, 0.09 * o.drives + 0.06 * o.fails);
-    var best = { k: 'sh', ev: this.shotInfo(H).ev };
+    var fog = (99 - H.r.oiq) / 99 * 0.3; function nz() { return (self.rand() - 0.5) * 2 * fog; } // low IQ misreads the floor
+    var best = { k: 'sh', ev: this.shotInfo(H).ev + nz() };
     this.offs().forEach(function (T) {
       if (T === H) return;
       var risk = self.passRisk(H, T); if (risk > 0.3) return;
-      var ev = (1 - risk) * self.catchEV(H, T) - risk * 1.0 - 0.03 - 0.015 * o.passes - (force ? 0.12 : 0);
+      var ev = (1 - risk) * self.catchEV(H, T) - risk * 1.0 - 0.03 - 0.015 * o.passes - (force ? 0.12 : 0) + nz();
       if (ev > best.ev) best = { k: 'pass', T: T, ev: ev };
     });
-    if (this.sc > 2.6) { var dv = this.driveEV(H); if (dv > best.ev) best = { k: 'drv', ev: dv }; }
+    if (this.sc > 2.6) { var dv = this.driveEV(H) + nz(); if (dv > best.ev) best = { k: 'drv', ev: dv }; }
     if (best.ev >= thr) {
       if (best.k === 'sh') this.shoot(H);
       else if (best.k === 'pass') { this.pass(H, best.T); o.think = 0.3; }
@@ -403,9 +405,27 @@
     return true;
   };
 
+  Sim.prototype.setPath = function (p, c) { // c: control point in half-court coords, or nothing for a straight line
+    p.path = null; if (!c) return;
+    var cw = h2w(this.offTeam, c[0], c[1]), pts = [], x0 = p.x, y0 = p.y;
+    [0.2, 0.4, 0.6, 0.8].forEach(function (u) { var a = (1 - u) * (1 - u), b = 2 * u * (1 - u), d2 = u * u; pts.push([clamp(a * x0 + b * cw.x + d2 * p.tx, 1.5, 48.5), clamp(a * y0 + b * cw.y + d2 * p.ty, 1.5, 92.5)]); });
+    p.path = { pts: pts, ex: p.tx, ey: p.ty };
+  };
+  // ordered reads drawn into a play: take the first option that is really there
+  Sim.prototype.tryOptions = function () {
+    var o = this.o, H = this.holder(), op = o.opt, k;
+    if (!H || H.slot !== op.s) { o.opt = null; this.breakPlay(); return; }
+    for (k = 0; k < op.list.length; k++) {
+      var q = op.list[k];
+      if (q.k === 'pass') { var T = this.op(q.to); if (T && T !== H && this.passRisk(H, T) < 0.26 && this.catchEV(H, T) >= 0.9) { o.opt = null; o.beats = null; o.gen = false; o.soc = T.slot; this.ev(H.name + ' finds ' + T.name + '.', 'play'); this.pass(H, T); o.think = 0.3; return; } }
+      else if (q.k === 'sh') { if (this.shotInfo(H).ev >= 0.88) { o.opt = null; this.shoot(H); return; } }
+      else if (q.k === 'drv') { if (this.driveEV(H) >= 0.95) { o.opt = null; var hh = w2h(this.offTeam, H.x, H.y); o.beats = [[{ k: 'drv', s: H.slot, x: clamp(hh.hx * 0.15, -3, 3), y: 7 }]]; o.gen = true; o.bi = 0; if (!this.startBeat(0)) { o.beats = null; o.think = 0.3; } return; } }
+    }
+    if (this.t - op.t > 1.3) { o.opt = null; this.breakPlay(); }
+  };
   Sim.prototype.startBeat = function (i) {
     var o = this.o, off = this.offTeam, movers = [], k, a, p, w, H;
-    var ord = { pass: 0, drv: 1, sh: 2, scr: 3, mv: 4 }, b = o.beats[i].slice().sort(function (x, y) { return ord[x.k] - ord[y.k]; });
+    var ord = { pass: 0, ho: 0.5, drv: 1, sh: 2, opt: 2.5, scr: 3, mv: 4 }, b = o.beats[i].slice().sort(function (x, y) { return ord[x.k] - ord[y.k]; });
     for (k = 0; k < b.length; k++) {
       a = b[k]; p = this.op(a.s); H = this.holder();
       if (a.k === 'pass') {
@@ -422,9 +442,18 @@
         w = h2w(off, a.x, a.y);
         if (a.soft) { p.tx = w.x; p.ty = w.y; p.sp = 0.7; p.dribbled = true; }
         else if (!this.startDrive(p, w.x, w.y, a.post)) return true;
+        else if (a.c && p.tx === w.x && p.ty === w.y) this.setPath(p, a.c);
         movers.push(p);
+      } else if (a.k === 'ho') {
+        if (H !== p) return false;
+        var R = this.op(a.to); if (!R || R === p) return false;
+        R.tx = p.x; R.ty = p.y; R.sp = 0.9; R.scrUntil = 0; R.scrPending = false; this.setPath(R, a.c);
+        p.tx = p.x; p.ty = p.y; o.ho = { g: p, r: R };
+      } else if (a.k === 'opt') {
+        if (H !== p) return false;
+        o.opt = { s: p.slot, list: a.list || [], t: this.t };
       } else if (a.k === 'mv' || a.k === 'scr') {
-        w = h2w(off, a.x, a.y); p.tx = clamp(w.x, 1.5, 48.5); p.ty = clamp(w.y, 1.5, 92.5); p.sp = a.k === 'mv' ? 0.92 : 0.85; p.scrUntil = 0; p.scrPending = a.k === 'scr';
+        w = h2w(off, a.x, a.y); p.tx = clamp(w.x, 1.5, 48.5); p.ty = clamp(w.y, 1.5, 92.5); p.sp = a.k === 'mv' ? 0.92 : 0.85; p.scrUntil = 0; p.scrPending = a.k === 'scr'; this.setPath(p, a.c);
         movers.push(p);
       }
     }
@@ -434,6 +463,17 @@
 
   Sim.prototype.runBeats = function () {
     var o = this.o, el = this.t - o.bt, all = true, k;
+    if (o.ho) { // handoff: the ball changes hands when the receiver brushes past, and the giver acts as a screen
+      var hg = o.ho.g, hr = o.ho.r;
+      if (pd(hg, hr) < 2.8) {
+        o.ho = null; this.ball.h = hr.i; hr.dribbled = true; hr.tx = hr.x; hr.ty = hr.y; hr.path = null; hg.scrUntil = this.t + 1.0;
+        var gd = this.guardOf(hr); if (gd) this.applyScreen(gd, hg, hr, hr, this.d.style === 'zone');
+        this.ev(hg.name + ' hands off to ' + hr.name + '.', 'play'); o.bt = this.t - 0.2; return;
+      }
+      if (el > 3.4) { o.ho = null; this.breakPlay(); }
+      return;
+    }
+    if (o.opt) { this.tryOptions(); return; }
     for (k = 0; k < o.movers.length; k++) { var p = o.movers[k]; if (dist(p.x, p.y, p.tx, p.ty) > 1.3) all = false; if (p.scrPending) all = false; }
     if ((all && el >= o.minT) || el > 3.2) {
       o.movers.forEach(function (q) { q.driving = false; });
@@ -445,7 +485,7 @@
   Sim.prototype.breakPlay = function () {
     var o = this.o;
     if (!o.gen) this.ev('The play gets broken up.', 'i');
-    o.beats = null; o.gen = false; o.think = 0.3; o.pendingRead = false;
+    o.beats = null; o.gen = false; o.think = 0.3; o.pendingRead = false; o.ho = null; o.opt = null;
     this.offs().forEach(function (q) { q.driving = false; q.scrPending = false; });
   };
 
@@ -508,7 +548,7 @@
       var h2 = w2h(off, H.x, H.y);
       if (d.style === 'press' && !o.crossed) {
         var G = this.guardOf(H);
-        if (h2.hy > 47 && G && pd(G, H) < 5.5) { var rate = clamp(0.03 * (1 + (G.r.pd - H.r.ply) / 50), 0.01, 0.09); if (this.rand() < rate * dt) { this.turnover(G.name + ' steals it in the press.', G); return; } }
+        if (h2.hy > 47 && G && pd(G, H) < 5.5) { var rate = clamp(0.03 * (1 + (G.r.stl - H.r.hnd) / 45), 0.01, 0.09); if (this.rand() < rate * dt) { this.turnover(G.name + ' steals it in the press.', G); return; } }
       }
       if (!o.crossed && h2.hy < 47) { o.crossed = true; if (d.style === 'press') { this.defs().forEach(function (q) { q.stun = Math.max(q.stun, 0.55); }); this.ev('The press is broken.', 'i'); } }
       if (pd(H, sw) < 2.5) {
@@ -526,7 +566,7 @@
     var o = this.o, H = this.holder();
     if (this.ball.fly || this.ball.reb || !H) return;
     if (o.phase === 'adv') { this.advance(dt); return; }
-    if (this.sc <= 4.2 && !o.forced) { o.forced = true; o.beats = null; this.offs().forEach(function (q) { q.driving = false; }); o.phase = 'run'; o.think = Math.min(o.think, 0.05); o.free = true; }
+    if (this.sc <= 4.2 && !o.forced) { o.forced = true; o.beats = null; o.ho = null; o.opt = null; this.offs().forEach(function (q) { q.driving = false; }); o.phase = 'run'; o.think = Math.min(o.think, 0.05); o.free = true; }
     if (o.phase === 'reset') { this.resetStep(); return; }
     if (o.liveQ && !o.forced) {
       var c = o.liveQ; o.liveQ = null;
@@ -537,6 +577,7 @@
     }
     if (o.beats) { this.runBeats(); return; }
     o.think -= dt; if (o.think > 0) return;
+    if (o.soc === H.slot) { o.soc = -1; o.free = true; if (this.shotInfo(H).ev >= 0.8) { this.shoot(H); return; } }
     if (o.pendingRead) { o.pendingRead = false; if (this.decide(true)) return; }
     if (!o.free && !o.forced && o.pi + 1 < o.plays.length) { this.loadPlay(o.pi + 1); return; }
     o.free = true; this.decide(false);
@@ -632,7 +673,7 @@
           if (d.watch[j] && d.watch[j].until > t) { var W = this.op(d.watch[j].o), uw = unit(W.x, W.y, hp.x, hp.y); tx = (tx + W.x + uw.x * 3) / 2; ty = (ty + W.y + uw.y * 3) / 2; }
         }
       }
-      var tau = 0.14 + (99 - D.r.pd) / 99 * 0.22, k = 1 - Math.exp(-dt / tau);
+      var tau = 0.12 + (99 - D.r.diq) / 99 * 0.3, k = 1 - Math.exp(-dt / tau);
       D.tx += (clamp(tx, 1, 49) - D.tx) * k; D.ty += (clamp(ty, 1, 93) - D.ty) * k; D.sp = 0.97;
     }
     this.screens(H, zone);
@@ -649,7 +690,7 @@
     var cov = onBall ? (rs ? 'switch' : d.cover) : (d.style === 'switch' || rs ? 'switch' : 'fight');
     if (cov === 'switch' && D2 && D2 !== D) { var a = d.assign[D.slot]; d.assign[D.slot] = d.assign[D2.slot]; d.assign[D2.slot] = a; D.tx = S.x; D.ty = S.y; D2.tx = U.x; D2.ty = U.y; d.contest[D.slot] = t + 2.5; D2.imm[S.slot] = t + 2.8; this.nScr = (this.nScr || 0) + 1; return; }
     this.nScr = (this.nScr || 0) + 1;
-    if (!onBall) D.stun = Math.max(D.stun, clamp(0.5 + 0.1 * (S.r.size - D.r.size), 0.3, 0.9));
+    if (!onBall) D.stun = Math.max(D.stun, clamp(0.5 + (S.r.str - D.r.str) / 120, 0.3, 0.9));
     else if (cov === 'drop') { D.stun = Math.max(D.stun, 0.5); if (D2) { D2.mode = 'drop'; D2.modeUntil = t + 2.0; } }
     else if (cov === 'hedge') { D.stun = Math.max(D.stun, 0.4); if (D2) { D2.mode = 'hedge'; D2.modeUntil = t + 0.9; } }
     else if (cov === 'trap') { D.stun = Math.max(D.stun, 0.2); d.dbl = { o: U.slot, until: t + 2.6 }; d.dblBy = D2 ? D2.slot : -1; }
@@ -677,8 +718,14 @@
       if (p.stun > 0) { p.stun -= dt; v *= 0.2; }
       if (p === H && hedged) v *= 0.45;
       if (p.scrUntil > t) v = 0;
-      var dx = p.tx - p.x, dy = p.ty - p.y, l = Math.sqrt(dx * dx + dy * dy), ox = p.x, oy = p.y;
-      if (l > 0.05) { var st = Math.min(l, v * dt); p.x += dx / l * st; p.y += dy / l * st; }
+      var gx = p.tx, gy = p.ty;
+      if (p.path) { // follow a drawn curve: waypoints first, then the end point
+        if (p.path.ex !== p.tx || p.path.ey !== p.ty) p.path = null;
+        else { while (p.path.pts.length && dist(p.x, p.y, p.path.pts[0][0], p.path.pts[0][1]) < 1.4) p.path.pts.shift(); if (p.path.pts.length) { gx = p.path.pts[0][0]; gy = p.path.pts[0][1]; } else p.path = null; }
+      }
+      var dx = gx - p.x, dy = gy - p.y, l0 = Math.sqrt(dx * dx + dy * dy), ox = p.x, oy = p.y;
+      if (l0 > 0.05) { var st = Math.min(l0, v * dt); p.x += dx / l0 * st; p.y += dy / l0 * st; }
+      var l = dist(p.x, p.y, p.tx, p.ty);
       p.x = clamp(p.x, 0.8, 49.2); p.y = clamp(p.y, 0.8, 93.2);
       p.vx = (p.x - ox) / dt; p.vy = (p.y - oy) / dt;
       if (p.scrPending && l < 1) { p.scrPending = false; p.scrUntil = t + 2.6; }
@@ -731,8 +778,8 @@
     if (this.done || !this.o) return false;
     var o = this.o, d = this.d, t = this.t, H = this.holder(), off = this.offTeam;
     if (team === off) {
-      if (c.k === 'off') { o.plays = []; o.free = true; o.pendingRead = false; if (o.phase === 'reset') o.phase = 'run'; if (o.beats && !o.gen) { o.beats = null; o.think = 0.2; } this.ev('Play called off. Freelance.', 'call'); return true; }
-      if (c.k === 'pnr') { if (c.a === c.b || c.a == null || c.b == null) return false; if (o.phase === 'adv') { o.plays = []; } if (o.phase === 'reset') o.phase = 'run'; o.liveQ = { a: c.a, b: c.b }; if (o.beats && !this.ball.fly) o.beats = null; this.ev('Coach calls a pick and roll: ' + this.op(c.a).name + ' and ' + this.op(c.b).name + '.', 'call'); return true; }
+      if (c.k === 'off') { o.plays = []; o.free = true; o.pendingRead = false; if (o.phase === 'reset') o.phase = 'run'; if (o.beats && !o.gen) { o.beats = null; o.think = 0.2; } o.ho = null; o.opt = null; this.ev('Play called off. Freelance.', 'call'); return true; }
+      if (c.k === 'pnr') { if (c.a === c.b || c.a == null || c.b == null) return false; if (o.phase === 'adv') { o.plays = []; } if (o.phase === 'reset') o.phase = 'run'; o.liveQ = { a: c.a, b: c.b }; if (o.beats && !this.ball.fly) { o.beats = null; o.ho = null; o.opt = null; } this.ev('Coach calls a pick and roll: ' + this.op(c.a).name + ' and ' + this.op(c.b).name + '.', 'call'); return true; }
       if (c.k === 'cut') { var p = this.op(c.s); if (!p || p === H) return false; var hh = w2h(off, p.x, p.y), w = h2w(off, hh.hx > 0 ? 2.5 : -2.5, 7); p.tx = w.x; p.ty = w.y; p.sp = 1; p.scrUntil = 0; p.scrPending = false; if (!o.beats) o.think = Math.max(o.think, 0.55); this.ev(p.name + ' cuts to the rim.', 'call'); return true; }
       return false;
     }
@@ -744,7 +791,7 @@
     if (c.k === 'steal') {
       var D = this.dp(c.d); if (!D) return false;
       if (H && !this.ball.fly && pd(D, H) < 6) {
-        var ps = clamp(0.11 + (D.r.pd - H.r.ply) / 250 + (H.driving ? 0.03 : 0), 0.03, 0.3);
+        var ps = clamp(0.11 + (D.r.stl - H.r.hnd) / 200 + (H.driving ? 0.03 : 0), 0.03, 0.32);
         if (this.rand() < ps) { this.turnover(D.name + ' goes for the steal and gets it!', D); }
         else if (this.rand() < 0.15) { var made = 0; for (var q = 0; q < 2; q++) if (this.rand() < H.r.ft) made++; this.score[off] += made; this.ev(D.name + ' reaches in. Foul. ' + H.name + ' makes ' + made + ' of 2.', made ? 'score' : 'miss'); this.finish('ft', made, true); }
         else { D.stun = 1.0; this.ev(D.name + ' gambles for the steal and misses.', 'call'); }

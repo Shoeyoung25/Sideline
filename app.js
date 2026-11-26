@@ -42,6 +42,7 @@
 
   // ---------- plan validation (plans can arrive from the other phone) ----------
   function num(v, lo, hi) { v = +v; return isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v * 2) / 2)) : 0; }
+  function ctl(c) { return Array.isArray(c) && c.length === 2 && isFinite(+c[0]) && isFinite(+c[1]) ? [num(c[0], -32, 32), num(c[1], -6, 54)] : null; }
   function slot(v) { v = +v; return v === 0 || v === 1 || v === 2 || v === 3 || v === 4 ? v : 0; }
   function cleanPlay(p) {
     if (!p || !Array.isArray(p.setup) || p.setup.length !== 5 || !Array.isArray(p.beats)) return null;
@@ -53,7 +54,12 @@
         if (!a) return;
         if (a.k === 'pass') { if (slot(a.s) !== slot(a.to)) nb.push({ k: 'pass', s: slot(a.s), to: slot(a.to) }); }
         else if (a.k === 'sh') nb.push({ k: 'sh', s: slot(a.s) });
-        else if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv') { var n = { k: a.k, s: slot(a.s), x: num(a.x, -24, 24), y: num(a.y, 1, 46) }; if (a.post) n.post = 1; nb.push(n); }
+        else if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv') { var n = { k: a.k, s: slot(a.s), x: num(a.x, -24, 24), y: num(a.y, 1, 46) }; if (a.post) n.post = 1; if (ctl(a.c)) n.c = ctl(a.c); nb.push(n); }
+        else if (a.k === 'ho') { if (slot(a.s) !== slot(a.to)) { var hn = { k: 'ho', s: slot(a.s), to: slot(a.to) }; if (ctl(a.c)) hn.c = ctl(a.c); nb.push(hn); } }
+        else if (a.k === 'opt') {
+          var list = []; (Array.isArray(a.list) ? a.list : []).slice(0, 4).forEach(function (q) { if (!q) return; if (q.k === 'pass') { if (slot(q.to) !== slot(a.s)) list.push({ k: 'pass', to: slot(q.to) }); } else if (q.k === 'sh' || q.k === 'drv') list.push({ k: q.k }); });
+          if (list.length) nb.push({ k: 'opt', s: slot(a.s), list: list });
+        }
       });
       if (nb.length) out.beats.push(nb);
     });
@@ -97,7 +103,7 @@
     changed();
   }
   function startMatch() {
-    S.score = [0, 0]; S.pos = 0; S.total = 10; S.ot = false; S.off = 1; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
+    S.score = [0, 0]; S.pos = 0; S.total = 10; S.ot = false; S.off = 1; S.flash = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
@@ -109,7 +115,7 @@
       sim.startPossession(S.off, pend[S.off], pend[1 - S.off]);
       var look = { man: 'man to man', 'switch': 'man to man, switching everything', zone: 'a 2-3 zone', press: 'a full court press' }[sim.d.style];
       sim.ev(TEAM[1 - S.off] + ' is in ' + look + '.', 'i');
-      S.phase = 'live'; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null;
+      S.phase = 'live'; S.flash = null; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null;
     }
     changed();
   }
@@ -279,23 +285,30 @@
   }
 
   // ---------- draft ----------
-  var RT = [['ins', 'Inside'], ['three', '3PT'], ['ply', 'Playmaking'], ['reb', 'Rebound'], ['pd', 'Perimeter D'], ['rim', 'Rim D']];
+  var SORTS = [['ovr', 'Overall'], ['ins', 'Close'], ['three', '3PT'], ['hnd', 'Handle'], ['pas', 'Passing'], ['pd', 'Perimeter D'], ['rim', 'Interior D'], ['reb', 'Rebound'], ['spd', 'Speed'], ['oiq', 'Off IQ']];
+  var PILLS = [['ins', 'Close'], ['mid', 'Mid'], ['three', '3PT'], ['hnd', 'Handle'], ['pas', 'Pass'], ['pd', 'Per D'], ['rim', 'Int D'], ['spd', 'Speed']];
+  function attrCard(p) {
+    return h('.attrs', BB.ATTRS.map(function (g) {
+      return h('.agroup', h('h3', { text: g[0] }), g[1].map(function (a) { var v = p.r[a[0]]; return h('.arow', h('span', { text: a[1] }), h('.abar', h('i', { style: 'width:' + Math.max(4, (v - 40) / 59 * 100) + '%' })), h('b' + (v >= 85 ? '.hot' : v < 60 ? '.cold' : ''), { text: v })); }));
+    }));
+  }
   function viewDraft() {
     var myTurn = S.mode === 'local' ? true : S.turn === me, who = S.turn;
     var list = BB.players.filter(function (p) { return !taken(p.id); }).sort(function (a, b) { return b.r[ui.sort] - a.r[ui.sort] || b.r.ovr - a.r.ovr; });
     function roster(t) {
       return h('.roster' + (t ? '.t1' : '') + (S.turn === t ? '.turn' : ''), h('span.tag.t' + t, { text: TEAM[t] + (S.mode !== 'local' && t === me ? ' (you)' : '') }),
-        h('ol', S.picks[t].map(function (id) { return h('li', { text: P(id).name + ' · ' + P(id).pos }); })));
+        h('ol', S.picks[t].map(function (id) { return h('li', { text: P(id).tag + ' \u00b7 ' + P(id).pos + ' \u00b7 ' + P(id).r.ovr }); })));
     }
     return h('.pad',
-      h('.banner', { text: S.mode === 'local' ? TEAM[who] + ' coach picks. Any player, no restrictions.' : (myTurn ? 'Your pick.' : 'Waiting for ' + TEAM[who] + ' to pick.') }),
+      h('.banner', { text: S.mode === 'local' ? TEAM[who] + ' coach picks. Tap a name to see every rating.' : (myTurn ? 'Your pick. Tap a name to see every rating.' : 'Waiting for ' + TEAM[who] + ' to pick.') }),
       h('.rosters', roster(0), roster(1)),
-      h('div', h('h3', { text: 'Sort by' }), h('.chips', { style: 'margin-top:6px' }, [['ovr', 'Overall']].concat(RT).map(function (s) { return h('button.chip' + (ui.sort === s[0] ? '.on' : ''), { text: s[1], onclick: function () { ui.sort = s[0]; render(); } }); }))),
+      h('div', h('h3', { text: 'Sort by' }), h('.chips.scrollx', { style: 'margin-top:6px' }, SORTS.map(function (s) { return h('button.chip' + (ui.sort === s[0] ? '.on' : ''), { text: s[1], onclick: function () { ui.sort = s[0]; render(); } }); }))),
       h('div', list.map(function (p) {
+        var open = ui.open === p.id;
         return h('.prow',
-          h('div', h('.nm', { text: p.name }), h('.sub', { text: p.team + ' · ' + p.pos + ' · ' + p.s.pts.toFixed(1) + ' pts · ' + p.s.trb.toFixed(1) + ' reb · ' + p.s.ast.toFixed(1) + ' ast' })),
+          h('button.pname', { 'aria-expanded': open ? 'true' : 'false', onclick: function () { ui.open = open ? null : p.id; render(); } }, h('.nm', { text: p.name }), h('.sub', { text: p.team + ' \u00b7 ' + p.pos + ' \u00b7 ' + p.s.pts.toFixed(1) + ' pts \u00b7 ' + p.s.trb.toFixed(1) + ' reb \u00b7 ' + p.s.ast.toFixed(1) + ' ast' })),
           h('.row', h('span.ovr', { text: p.r.ovr }), h('button.btn.small.' + (who ? 'red' : 'blue'), { text: 'Draft', disabled: !myTurn, onclick: function () { sendPick(S.mode === 'local' ? who : me, p.id); } })),
-          h('.rt', RT.map(function (r) { var v = p.r[r[0]]; return h('span' + (v >= 85 ? '.hot' : v < 60 ? '.cold' : ''), { text: r[1] + ' ' + v }); })));
+          open ? attrCard(p) : h('.rt', PILLS.map(function (r) { var v = p.r[r[0]]; return h('span' + (v >= 85 ? '.hot' : v < 60 ? '.cold' : ''), { text: r[1] + ' ' + v }); })));
       })));
   }
 
@@ -303,7 +316,12 @@
   function names(t) { return S.lineup[t].map(function (id) { return P(id); }); }
   function lastLine() { return S.log.length ? S.log[S.log.length - 1] : ''; }
   function chipRow(list, cur, on) { return h('.chips', list.map(function (o) { return h('button.chip' + (cur === o[0] ? '.on' : ''), { text: o[1], onclick: function () { on(o[0]); render(); } }); })); }
-  function lineupStrip(t) { return h('.lineup', names(t).map(function (p, i) { return h('div', h('b', { text: i + 1 }), p.tag); })); }
+  function lineupStrip(t) { return h('.lineup', names(t).map(function (p, i) { return h('div', h('b', { text: (i + 1) + ' \u00b7 ' + p.r.ovr }), p.tag); })); }
+  function field(label, chips, note) { return h('.field', h('h4', { text: label }), chips, note ? h('p.note', { text: note }) : null); }
+  function lastResult() {
+    if (!S.flash) return h('.banner', { text: lastLine() });
+    return h('.banner.res', h('b.t' + S.flash.team, { text: S.flash.txt }), h('span', { text: S.flash.sub || '' }));
+  }
 
   function viewCoach() {
     var offC = S.off, defC = 1 - S.off;
@@ -311,7 +329,7 @@
       if (ui.localStep === 0 || ui.localStep === 2) {
         var c = ui.localStep === 0 ? offC : defC;
         return h('.center',
-          h('.banner', h('div', { text: lastLine() }), h('.loglist', { style: 'margin-top:6px' }, S.log.slice(-4, -1).map(function (l) { return h('div', { text: l }); }))),
+          lastResult(),
           h('span.tag.t' + c, { text: TEAM[c] + ' coach' }),
           h('h2', { text: 'Pass the phone to the ' + TEAM[c] + ' coach' }),
           h('p.muted', { text: (c === offC ? 'You have the ball. Set your offense.' : 'You are on defense. Set your scheme.') + ' The other coach should not look.' }),
@@ -336,18 +354,20 @@
           h('button.btn.small', { text: p ? 'Edit' : 'Draw', onclick: function () { openEditor(p, t, function (np) { f.plays[i] = np; render(); }); } }),
           p ? h('button.btn.small', { text: 'Clear', onclick: function () { f.plays[i] = null; render(); } }) : null)));
     }
+    var prev = saved.off[t];
     return h('div', h('.pad',
-      h('.row', h('span.tag.t' + t, { text: TEAM[t] + ' offense' }), h('span.note.grow', { text: lastLine() })),
-      h('div', h('h3', { text: 'Your five' }), h('div', { style: 'margin-top:6px' }, lineupStrip(t))),
-      h('.card', h('h3', { text: 'Style' }), chipRow(BB.OFF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note + ' This is what the team does when no play is running.' })),
+      h('.row', h('span.tag.t' + t, { text: TEAM[t] + ' offense' }), h('span.note.grow', { text: 'You have the ball.' })),
+      lastResult(),
+      lineupStrip(t),
       h('.card', h('h3', { text: 'Plays' }), playSlot(0), playSlot(1)),
-      h('.card', h('h3', { text: 'Run it through' }), chipRow([[null, 'Nobody']].concat(pl.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.focus, function (v) { f.focus = v; }),
-        h('p.note', { text: 'The freelance offense goes to this player first.' })),
-      h('.card', h('h3', { text: 'Tempo' }), chipRow([['set', 'Set up'], ['push', 'Push']], f.tempo, function (v) { f.tempo = v; }),
-        h('p.note', { text: f.tempo === 'push' ? 'Sprint up the floor and attack before the defense is set.' : 'Walk it up and get into the half court.' })),
-      h('.card', h('h3', { text: 'After the shot' }), chipRow([['crash', 'Crash the boards'], ['back', 'Get back']], f.after, function (v) { f.after = v; }),
-        h('p.note', { text: f.after === 'crash' ? 'More offensive rebounds, but open to a fast break.' : 'Almost no offensive rebounds, and no easy run-outs for them.' }))),
-      h('.foot', h('button.btn.primary', { text: 'Done', onclick: function () { var plan = clone(f); ui.fo = null; if (S.mode === 'local') ui.localStep = 2; sendPlan(t, plan); if (S.mode === 'local') render(); } })));
+      h('.card', h('h3', { text: 'Freelance style' }), chipRow(BB.OFF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note + ' Used whenever no play is running.' })),
+      h('.card',
+        field('Run it through', chipRow([[null, 'Nobody']].concat(pl.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.focus, function (v) { f.focus = v; })),
+        field('Tempo', chipRow([['set', 'Set up'], ['push', 'Push']], f.tempo, function (v) { f.tempo = v; }), f.tempo === 'push' ? 'Sprint up and attack before the defense is set.' : 'Walk it up into the half court.'),
+        field('After the shot', chipRow([['crash', 'Crash the boards'], ['back', 'Get back']], f.after, function (v) { f.after = v; }), f.after === 'crash' ? 'More offensive rebounds, open to a fast break.' : 'Few offensive rebounds, no easy run-outs.'))),
+      h('.foot',
+        prev ? h('button.btn', { text: 'Same as last time', onclick: function () { ui.fo = null; if (S.mode === 'local') ui.localStep = 2; sendPlan(t, clone(prev)); if (S.mode === 'local') render(); } }) : null,
+        h('button.btn.primary', { text: 'Done', onclick: function () { var plan = clone(f); ui.fo = null; if (S.mode === 'local') ui.localStep = 2; sendPlan(t, plan); if (S.mode === 'local') render(); } })));
   }
 
   function ruleText(r, opp) {
@@ -397,28 +417,31 @@
       f.ruleMsg = 'Reading...'; render();
       aiRule(txt, opp).then(function (r) { r = r || parseRule(txt, opp); if (ui.fd !== f) return; f.rule = r; f.ruleMsg = r ? '' : 'Could not turn that into a rule. Try: double a player, deny a player, sag off a player, play a player tight, or switch, with an optional "when he drives / posts up / has the ball".'; render(); });
     }
+    var cov = f.style === 'switch' ? 'switch' : f.cover, prevD = saved.def[t];
+    function done(src) {
+      var plan = { style: src.style, match: src.match.slice(), cover: src.cover, press: src.press, pp: clone(src.pp || {}), help: src.help, after: src.after, rule: src === f ? f.rule : null };
+      if (src === f && !f.rule && (f.ruleText || '').trim()) plan.rule = parseRule(f.ruleText, opp);
+      ui.fd = null; if (S.mode === 'local') ui.localStep = 0; sendPlan(t, plan);
+    }
     return h('div', h('.pad',
-      h('.row', h('span.tag.t' + t, { text: TEAM[t] + ' defense' }), h('span.note.grow', { text: lastLine() })),
+      h('.row', h('span.tag.t' + t, { text: TEAM[t] + ' defense' }), h('span.note.grow', { text: 'They have the ball.' })),
+      lastResult(),
       h('.card', h('h3', { text: 'Scheme' }), chipRow(BB.DEF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note })),
       h('.card', h('h3', { text: 'Matchups' }),
-        h('p.note', { text: manOn ? 'Your defender, who he guards, and how close. Kept until you change them.' : 'Saved, but the zone ignores them.' }),
+        h('p.note', { text: manOn ? 'Your defender, who he guards, how close. Kept until you change them.' : 'Saved, but the zone ignores them.' }),
         [0, 1, 2, 3, 4].map(matchRow)),
-      h('.card', h('h3', { text: 'Ball screens' }), chipRow([['drop', 'Drop'], ['switch', 'Switch'], ['hedge', 'Hedge'], ['trap', 'Trap']], f.style === 'switch' ? 'switch' : f.cover, function (v) { f.cover = v; }),
-        h('p.note', { text: { drop: 'Big sits back at the rim. Stops the roll, gives up pull-ups and pops.', 'switch': 'Swap men. Nothing open off the screen, but you live with the mismatch.', hedge: 'Big jumps out at the ball, then recovers. Slows the handler, the roller is open for a beat.', trap: 'Two on the ball. Forces mistakes, leaves someone open.' }[f.style === 'switch' ? 'switch' : f.cover] })),
-      h('.card', h('h3', { text: 'Pressure' }), chipRow([['sag', 'Sag off'], ['normal', 'Normal'], ['tight', 'Tight']], f.press, function (v) { f.press = v; }),
-        h('p.note', { text: { sag: 'Harder to drive on. Easier to shoot over.', normal: 'Balanced.', tight: 'Takes away shots. Easier to blow by.' }[f.press] })),
-      h('.card', h('h3', { text: 'Help' }), chipRow([['help', 'Help on drives'], ['home', 'Stay home']], f.help, function (v) { f.help = v; }),
-        h('p.note', { text: f.help === 'help' ? 'A second defender meets the driver at the rim. Kick-outs find open shooters.' : 'Everyone stays with his shooter. The driver gets a one on one finish.' })),
-      h('.card', h('h3', { text: 'After the shot' }), chipRow([['box', 'Box out'], ['leak', 'Leak out']], f.after, function (v) { f.after = v; }),
-        h('p.note', { text: f.after === 'box' ? 'All five rebound.' : 'One defender runs early for a fast break. You give up more offensive rebounds.' })),
+      h('.card',
+        field('Ball screens', chipRow([['drop', 'Drop'], ['switch', 'Switch'], ['hedge', 'Hedge'], ['trap', 'Trap']], cov, function (v) { f.cover = v; }),
+          { drop: 'Big sits back at the rim. Stops the roll, gives up pull-ups and pops.', 'switch': 'Swap men. Nothing open off the screen, you live with the mismatch.', hedge: 'Big jumps out at the ball, then recovers. The roller is open for a beat.', trap: 'Two on the ball. Forces mistakes, leaves someone open.' }[cov]),
+        field('Pressure', chipRow([['sag', 'Sag off'], ['normal', 'Normal'], ['tight', 'Tight']], f.press, function (v) { f.press = v; }), { sag: 'Harder to drive on, easier to shoot over.', normal: 'Balanced.', tight: 'Takes away shots, easier to blow by.' }[f.press]),
+        field('Help', chipRow([['help', 'Help on drives'], ['home', 'Stay home']], f.help, function (v) { f.help = v; }), f.help === 'help' ? 'A second defender meets the driver. Kick-outs find shooters.' : 'Everyone stays with his shooter. The driver finishes one on one.'),
+        field('After the shot', chipRow([['box', 'Box out'], ['leak', 'Leak out']], f.after, function (v) { f.after = v; }), f.after === 'box' ? 'All five rebound.' : 'One runs early for a fast break. More offensive rebounds for them.')),
       h('.card', h('h3', { text: 'Emphasis for this possession' }),
         h('.row', h('.grow', ruleIn), h('button.btn.small', { text: 'Read it', onclick: readRule })),
         f.rule ? h('.banner', { text: ruleText(f.rule, opp) }) : (f.ruleMsg ? h('p.note', { text: f.ruleMsg }) : h('p.note', { text: 'Type a rule in your own words, then tap Read it to check how it was understood.' })))),
-      h('.foot', h('button.btn.primary', { text: 'Done', onclick: function () {
-        var plan = { style: f.style, match: f.match.slice(), cover: f.cover, press: f.press, pp: clone(f.pp), help: f.help, after: f.after, rule: f.rule };
-        if (!f.rule && (f.ruleText || '').trim()) plan.rule = parseRule(f.ruleText, opp);
-        ui.fd = null; if (S.mode === 'local') ui.localStep = 0; sendPlan(t, plan);
-      } })));
+      h('.foot',
+        prevD ? h('button.btn', { text: 'Same as last time', onclick: function () { done(prevD); } }) : null,
+        h('button.btn.primary', { text: 'Done', onclick: function () { done(f); } })));
   }
 
   // ---------- play diagrams ----------
@@ -426,7 +449,10 @@
     var pos = p.setup.map(function (q) { return [q[0], q[1]]; }), ball = p.ball || 0;
     for (var i = 0; i < upto && i < p.beats.length; i++) {
       p.beats[i].forEach(function (a) { if (a.k === 'pass') ball = a.to; });
-      p.beats[i].forEach(function (a) { if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv') pos[a.s] = [a.x, a.y]; });
+      p.beats[i].forEach(function (a) {
+        if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv') pos[a.s] = [a.x, a.y];
+        else if (a.k === 'ho') { var g = pos[a.s], r0 = pos[a.to], dx = g[0] - r0[0], dy = g[1] - r0[1], l = Math.sqrt(dx * dx + dy * dy) || 1; pos[a.to] = [g[0] + dx / l * 2, g[1] + dy / l * 2]; ball = a.to; }
+      });
     }
     return { pos: pos, ball: ball };
   }
@@ -440,20 +466,30 @@
     ctx.beginPath(); ctx.moveTo(X(-3), Y(4)); ctx.lineTo(X(3), Y(4)); ctx.stroke();
     ctx.strokeStyle = '#d2382d'; ctx.beginPath(); ctx.arc(X(0), Y(5.25), 0.9 * s, 0, Math.PI * 2); ctx.stroke();
   }
-  function arrow(ctx, x0, y0, x1, y1, kind, s) {
+  // one route line. cx, cy is an optional curve control point (canvas pixels)
+  function arrow(ctx, x0, y0, x1, y1, kind, s, cx, cy) {
     var dx = x1 - x0, dy = y1 - y0, l = Math.sqrt(dx * dx + dy * dy); if (l < 2) return;
-    var ux = dx / l, uy = dy / l, hd = Math.max(5, s * 1.1);
+    var hd = Math.max(5, s * 1.1), pts = [], N = cx == null ? 1 : 18, i;
+    for (i = 0; i <= N; i++) { var u = i / N; if (cx == null) pts.push([x0 + dx * u, y0 + dy * u]); else { var a = (1 - u) * (1 - u), b = 2 * u * (1 - u), c = u * u; pts.push([a * x0 + b * cx + c * x1, a * y0 + b * cy + c * y1]); } }
+    var pl = pts[pts.length - 2], ex = x1 - pl[0], ey = y1 - pl[1], el = Math.sqrt(ex * ex + ey * ey) || 1, ux = ex / el, uy = ey / el;
     ctx.beginPath(); ctx.setLineDash(kind === 'pass' ? [hd * 0.8, hd * 0.6] : kind === 'sh' ? [2, hd * 0.5] : []);
     if (kind === 'drv') {
-      var n = Math.max(3, Math.floor(l / (hd * 1.1))), amp = hd * 0.45; ctx.moveTo(x0, y0);
-      for (var i = 1; i < n; i++) { var u = i / n, sg = i % 2 ? 1 : -1; ctx.lineTo(x0 + dx * u - uy * amp * sg, y0 + dy * u + ux * amp * sg); }
+      var len = 0, segs = [0]; for (i = 1; i < pts.length; i++) { len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); segs.push(len); }
+      var n = Math.max(3, Math.floor(len / (hd * 1.1))), amp = hd * 0.45; ctx.moveTo(x0, y0);
+      for (var k = 1; k < n; k++) {
+        var want = len * k / n, j = 1; while (j < segs.length - 1 && segs[j] < want) j++;
+        var f = (want - segs[j - 1]) / ((segs[j] - segs[j - 1]) || 1), px = pts[j - 1][0] + (pts[j][0] - pts[j - 1][0]) * f, py = pts[j - 1][1] + (pts[j][1] - pts[j - 1][1]) * f;
+        var tx = pts[j][0] - pts[j - 1][0], ty = pts[j][1] - pts[j - 1][1], tl = Math.sqrt(tx * tx + ty * ty) || 1, sg = k % 2 ? 1 : -1;
+        ctx.lineTo(px - ty / tl * amp * sg, py + tx / tl * amp * sg);
+      }
       ctx.lineTo(x1, y1);
-    } else { ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
+    } else { ctx.moveTo(x0, y0); for (i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); }
     ctx.stroke(); ctx.setLineDash([]);
     ctx.beginPath();
     if (kind === 'scr') { ctx.moveTo(x1 - uy * hd, y1 + ux * hd); ctx.lineTo(x1 + uy * hd, y1 - ux * hd); ctx.stroke(); }
-    else { ctx.moveTo(x1, y1); ctx.lineTo(x1 - ux * hd - uy * hd * 0.6, y1 - uy * hd + ux * hd * 0.6); ctx.lineTo(x1 - ux * hd + uy * hd * 0.6, y1 - uy * hd - ux * hd * 0.6); ctx.closePath(); ctx.fill(); }
+    else if (kind !== 'ho') { ctx.moveTo(x1, y1); ctx.lineTo(x1 - ux * hd - uy * hd * 0.6, y1 - uy * hd + ux * hd * 0.6); ctx.lineTo(x1 - ux * hd + uy * hd * 0.6, y1 - uy * hd - ux * hd * 0.6); ctx.closePath(); ctx.fill(); }
   }
+  function badge(ctx, x, y, n, s) { var r = Math.max(5, s * 1.25); ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = '#18202e'; ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '700 ' + Math.round(r * 1.5) + 'px "Barlow Condensed", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(n), x, y + r * 0.08); ctx.fillStyle = '#18202e'; }
   // opts.beat: -1 draws the whole play from the setup. k >= 0 draws the state at the start of beat k with that beat bold.
   function drawDiagram(cv, play, opts) {
     var ctx = cv.getContext('2d'), W = cv.width, s = W / 50, n = play.beats.length, i;
@@ -467,14 +503,23 @@
       var st = playState(play, i), en = playState(play, i + 1), al = opts.beat < 0 ? 0.9 : (i === cur ? 1 : 0.25);
       ctx.globalAlpha = al; ctx.strokeStyle = ctx.fillStyle = '#18202e'; ctx.lineWidth = Math.max(1.4, s * 0.32);
       play.beats[i].forEach(function (a) {
-        var p0 = st.pos[a.s];
+        var p0 = st.pos[a.s], cx = a.c ? X(a.c[0]) : null, cy = a.c ? Y(a.c[1]) : null;
         if (a.k === 'pass') arrow(ctx, X(p0[0]), Y(p0[1]), X(en.pos[a.to][0]), Y(en.pos[a.to][1]), 'pass', s);
         else if (a.k === 'sh') arrow(ctx, X(p0[0]), Y(p0[1]), X(0), Y(5.25), 'sh', s);
-        else arrow(ctx, X(p0[0]), Y(p0[1]), X(a.x), Y(a.y), a.k, s);
+        else if (a.k === 'ho') { // receiver runs to the giver, two short bars mark the exchange
+          var r0 = st.pos[a.to]; arrow(ctx, X(r0[0]), Y(r0[1]), X(p0[0]), Y(p0[1]), 'ho', s, cx, cy);
+          var hx = X(p0[0]), hy = Y(p0[1]), q = Math.max(4, s * 1.5); ctx.save(); ctx.strokeStyle = '#f08a24'; ctx.lineWidth = Math.max(2, s * 0.5); ctx.beginPath(); ctx.moveTo(hx - q * 1.9, hy - q); ctx.lineTo(hx - q * 1.9, hy + q); ctx.moveTo(hx - q * 2.5, hy - q); ctx.lineTo(hx - q * 2.5, hy + q); ctx.stroke(); ctx.restore();
+        } else if (a.k === 'opt') {
+          a.list.forEach(function (q, n) {
+            var tx, ty, kind = q.k === 'pass' ? 'pass' : q.k === 'sh' ? 'sh' : 'drv';
+            if (q.k === 'pass') { tx = X(en.pos[q.to][0]); ty = Y(en.pos[q.to][1]); } else if (q.k === 'sh') { tx = X(0); ty = Y(5.25); } else { tx = X(p0[0] * 0.15); ty = Y(7); }
+            var sx = X(p0[0]), sy = Y(p0[1]); arrow(ctx, sx, sy, tx, ty, kind, s); if (W > 300) badge(ctx, sx + (tx - sx) * 0.55, sy + (ty - sy) * 0.55, n + 1, s);
+          });
+        } else arrow(ctx, X(p0[0]), Y(p0[1]), X(a.x), Y(a.y), a.k, s, cx, cy);
       });
     }
     ctx.globalAlpha = 1;
-    if (opts.drag) { ctx.strokeStyle = ctx.fillStyle = '#1c5fd4'; ctx.lineWidth = Math.max(1.4, s * 0.32); arrow(ctx, X(opts.drag.x0), Y(opts.drag.y0), X(opts.drag.x1), Y(opts.drag.y1), opts.drag.kind, s); }
+    if (opts.drag) { ctx.strokeStyle = ctx.fillStyle = '#1c5fd4'; ctx.lineWidth = Math.max(1.4, s * 0.32); var dc = opts.drag.c; arrow(ctx, X(opts.drag.x0), Y(opts.drag.y0), X(opts.drag.x1), Y(opts.drag.y1), opts.drag.kind, s, dc ? X(dc[0]) : null, dc ? Y(dc[1]) : null); }
     var ps = playState(play, opts.beat < 0 ? 0 : cur), r = Math.max(5, s * 1.9);
     for (i = 0; i < 5; i++) {
       var x = X(ps.pos[i][0]), y = Y(ps.pos[i][1]);
@@ -519,7 +564,7 @@
     function redraw() {
       if (!cv) return;
       var o = ed.step === 0 ? { beat: 0, setupOnly: true } : { beat: ed.step - 1 };
-      if (ed.drag && ed.drag.moved && ed.step > 0) o.drag = { x0: ed.drag.x0, y0: ed.drag.y0, x1: ed.drag.x, y1: ed.drag.y, kind: ed.tool };
+      if (ed.drag && ed.drag.moved && ed.step > 0 && ed.tool !== 'pass' && ed.tool !== 'opt') { var dk = ed.tool === 'ho' ? 'mv' : ed.tool; o.drag = { x0: ed.drag.x0, y0: ed.drag.y0, x1: ed.drag.x, y1: ed.drag.y, kind: dk, c: curveOf(ed.drag) }; }
       if (ed.concept && ed.concept.picks.length) o.sel = ed.concept.picks[0];
       drawDiagram(cv, ed.p, o);
     }
@@ -528,12 +573,36 @@
       if (ed.concept) return 'Tap the ' + ed.concept.c.pick[ed.concept.picks.length].toLowerCase() + '.';
       if (ed.step === 0) return 'Setup: drag players to where they start. Tap a player to give him the ball.';
       var hold = st().ball + 1;
-      return { mv: 'Cut: drag any player to where he goes.', scr: 'Screen: drag a player to where he sets it.', drv: 'Drive: drag ' + hold + ' (he has the ball).', pass: 'Pass: tap who ' + hold + ' passes to.', sh: '' }[ed.tool];
+      return { mv: 'Cut: drag any player to where he goes. Bend your drag to curve the route.', scr: 'Screen: drag a player to where he sets it.', drv: 'Drive: drag ' + hold + ' (he has the ball). Curves work too.', pass: 'Pass: tap who ' + hold + ' passes to.', ho: 'Handoff: tap who takes it from ' + hold + ', or drag him along the route he runs.', opt: 'Options: tap players in the order ' + hold + ' should look for them. Tap ' + hold + ' himself for a shot.', sh: '' }[ed.tool];
     }
+    // the drag path as one curve: null when it is close to a straight line
+    function curveOf(d) {
+      var pts = d.pts || [], x0 = d.x0, y0 = d.y0, x1 = d.x, y1 = d.y, dx = x1 - x0, dy = y1 - y0, l = Math.sqrt(dx * dx + dy * dy) || 1, best = null, bd = 2.2;
+      pts.forEach(function (p) { var off = Math.abs((p[0] - x0) * dy - (p[1] - y0) * dx) / l; if (off > bd) { bd = off; best = p; } });
+      return best ? [Math.round((2 * best[0] - (x0 + x1) / 2) * 2) / 2, Math.round((2 * best[1] - (y0 + y1) / 2) * 2) / 2] : null;
+    }
+    function isMove(q) { return q.k === 'mv' || q.k === 'scr' || q.k === 'drv'; }
     function setAct(a) {
       var b = beat(); if (!b) return;
-      for (var i = b.length - 1; i >= 0; i--) { var q = b[i]; if (a.k === 'pass' ? q.k === 'pass' : (q.s === a.s && q.k !== 'pass' && q.k !== 'sh')) b.splice(i, 1); }
+      for (var i = b.length - 1; i >= 0; i--) {
+        var q = b[i], kill;
+        if (a.k === 'pass' || a.k === 'ho') kill = q.k === 'pass' || q.k === 'ho' || q.k === 'opt' || q.k === 'sh' || (a.k === 'ho' && isMove(q) && (q.s === a.s || q.s === a.to));
+        else if (a.k === 'opt' || a.k === 'sh') kill = q.k === 'opt' || q.k === 'sh';
+        else kill = isMove(q) && q.s === a.s;
+        if (kill) b.splice(i, 1);
+      }
       b.push(a);
+    }
+    function ballBusy(b) { return b && b.some(function (a) { return a.k === 'pass' || a.k === 'drv' || a.k === 'sh' || a.k === 'ho' || a.k === 'opt'; }); }
+    function optAct(create) {
+      var b = beat(), o = b && b.filter(function (a) { return a.k === 'opt'; })[0];
+      if (!o && create) { if (ballBusy(b) || !b) { trimEmpty(); addStep(); b = beat(); } o = { k: 'opt', s: st().ball, list: [] }; b.push(o); }
+      return o;
+    }
+    function addOpt(q) {
+      var o = optAct(true); if (o.list.length >= 4) { ed.msg = 'Four options is the limit.'; return; }
+      if (o.list.some(function (x) { return x.k === q.k && x.to === q.to; })) return;
+      o.list.push(q);
     }
     function addStep() { ed.p.beats.push([]); ed.step = ed.p.beats.length; }
     function trimEmpty() { ed.p.beats = ed.p.beats.filter(function (b) { return b.length; }); if (ed.step > ed.p.beats.length) ed.step = ed.p.beats.length; }
@@ -544,10 +613,10 @@
       var steps = [h('button.chip' + (ed.step === 0 ? '.on' : ''), { text: 'Setup', onclick: function () { trimEmpty(); ed.step = 0; ed.concept = null; build(); } })]
         .concat(ed.p.beats.map(function (b, i) { return h('button.chip' + (ed.step === i + 1 ? '.on' : ''), { text: 'Step ' + (i + 1), onclick: function () { ed.step = i + 1; ed.concept = null; build(); } }); }))
         .concat([h('button.chip', { text: '+ Step', onclick: function () { trimEmpty(); addStep(); if (ed.tool === 'sh') ed.tool = 'mv'; build(); } })]);
-      var tools = [['mv', 'Cut'], ['scr', 'Screen'], ['drv', 'Drive'], ['pass', 'Pass'], ['sh', 'Shoot']].map(function (t) {
+      var tools = [['mv', 'Cut'], ['scr', 'Screen'], ['drv', 'Drive'], ['pass', 'Pass'], ['ho', 'Handoff'], ['opt', 'Options'], ['sh', 'Shoot']].map(function (t) {
         return h('button.chip' + (ed.tool === t[0] && ed.step > 0 ? '.on' : ''), { text: t[1], disabled: ed.step === 0, onclick: function () {
           ed.msg = ''; ed.concept = null;
-          if (t[0] === 'sh') { var b = beat(); if (b && b.some(function (a) { return a.k === 'pass' || a.k === 'drv' || a.k === 'sh'; })) { trimEmpty(); addStep(); } else if (!b) addStep(); var hs = st().ball; setAct({ k: 'sh', s: hs }); ed.msg = (hs + 1) + ' shoots. That ends the play.'; }
+          if (t[0] === 'sh') { var b = beat(); if (ballBusy(b)) { trimEmpty(); addStep(); } else if (!b) addStep(); var hs = st().ball; setAct({ k: 'sh', s: hs }); ed.msg = (hs + 1) + ' shoots. That ends the play.'; }
           else ed.tool = t[0];
           build();
         } });
@@ -572,7 +641,16 @@
           h('.row', h('.grow', csel),
             h('button.btn.small', { text: 'Undo', onclick: function () { ed.msg = ''; ed.concept = null; var b = beat(); if (b && b.length) b.pop(); else if (ed.step > 0) { ed.p.beats.splice(ed.step - 1, 1); ed.step = Math.max(0, ed.step - 1); } build(); } }),
             h('button.btn.small', { text: 'Clear', onclick: function () { ed.p.beats = []; ed.step = 0; ed.msg = ''; ed.concept = null; build(); } })),
-          h('p.note', { text: 'Lines: solid arrow is a cut, bar end is a screen, zigzag is a drive, dashed is a pass, dotted is a shot. If the play ends without a shot, the ball handler reads the defense.' }),
+          (function () {
+            if (ed.tool !== 'opt' || ed.step === 0) return null;
+            var o = optAct(false), hold = st().ball, list = o ? o.list : [];
+            function lab(q) { return q.k === 'pass' ? 'Pass to ' + (q.to + 1) + ' ' + pl[q.to].tag : q.k === 'sh' ? 'Shoot' : 'Drive to the rim'; }
+            return h('.card', h('h3', { text: 'Options for ' + (hold + 1) + ' ' + pl[hold].tag + ', in order' }),
+              list.length ? list.map(function (q, n) { return h('.row', h('span.ovr', { text: n + 1 }), h('span.grow', { text: lab(q) }), h('button.btn.small', { text: 'Remove', onclick: function () { list.splice(n, 1); if (!list.length) { var b = beat(); b.splice(b.indexOf(o), 1); } build(); } })); }) : h('p.note', { text: 'None yet. He takes the first one that is open. If none is, the play breaks to your backup or freelance.' }),
+              h('.chips', [0, 1, 2, 3, 4].filter(function (i) { return i !== hold; }).map(function (i) { return h('button.chip', { text: 'Pass to ' + (i + 1), onclick: function () { addOpt({ k: 'pass', to: i }); build(); } }); })
+                .concat([h('button.chip', { text: 'Shoot', onclick: function () { addOpt({ k: 'sh' }); build(); } }), h('button.chip', { text: 'Drive', onclick: function () { addOpt({ k: 'drv' }); build(); } })])));
+          })(),
+          h('p.note', { text: 'Solid arrow: cut. Bar end: screen. Zigzag: drive. Dashed: pass. Orange bars: handoff. Dotted: shot. Numbers: options in order. A play that ends without a shot hands over to a read.' }),
           lineupStrip(team)))
       ]);
       var W = Math.min(536, ov.clientWidth - 24), dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -586,12 +664,12 @@
       var p = pt(e), s = near(p); ed.msg = '';
       if (s < 0) return;
       try { cv.setPointerCapture(e.pointerId); } catch (x) { /* fine */ }
-      ed.drag = { s: s, x0: st().pos[s][0], y0: st().pos[s][1], x: p.x, y: p.y, moved: false };
+      ed.drag = { s: s, x0: st().pos[s][0], y0: st().pos[s][1], x: p.x, y: p.y, moved: false, pts: [] };
     }
     function move(e) {
       if (!ed.drag) return; var p = pt(e);
       if (Math.hypot(p.x - ed.drag.x0, p.y - ed.drag.y0) > 1.6) ed.drag.moved = true;
-      ed.drag.x = p.x; ed.drag.y = p.y;
+      ed.drag.x = p.x; ed.drag.y = p.y; if (ed.drag.moved && ed.drag.pts.length < 200) ed.drag.pts.push([p.x, p.y]);
       if (ed.step === 0 && ed.drag.moved) ed.p.setup[ed.drag.s] = [Math.round(p.x * 2) / 2, Math.round(p.y * 2) / 2];
       redraw();
     }
@@ -610,21 +688,30 @@
         build(); return;
       }
       if (ed.step === 0) { if (!d.moved) ed.p.ball = s; build(); return; }
+      var gives = b.some(function (a) { return a.k === 'ho'; });
+      if (ed.tool === 'opt') { addOpt(s === hold ? { k: 'sh' } : { k: 'pass', to: s }); build(); return; }
       if (ed.tool === 'pass') {
         if (s === hold) { ed.msg = (hold + 1) + ' has the ball. Tap the player he passes to.'; }
         else if (b.some(function (a) { return a.k === 'drv' && a.s === hold; })) ed.msg = 'He is already driving in this step. Add the pass in the next step.';
         else setAct({ k: 'pass', s: hold, to: s });
         build(); return;
       }
+      if (ed.tool === 'ho') {
+        if (s === hold) ed.msg = (hold + 1) + ' has the ball. Tap or drag the player who takes it from him.';
+        else { var hp = st().pos[hold], act = { k: 'ho', s: hold, to: s }; if (d.moved) { d.x = hp[0]; d.y = hp[1]; var hc = curveOf(d); if (hc) act.c = hc; } setAct(act); ed.msg = (s + 1) + ' takes the handoff from ' + (hold + 1) + '. Draw what he does with it in the next step.'; }
+        build(); return;
+      }
       if (!d.moved) { build(); return; }
-      var x = Math.round(d.x * 2) / 2, y = Math.round(d.y * 2) / 2;
-      if (ed.tool === 'drv') {
+      var x = Math.round(d.x * 2) / 2, y = Math.round(d.y * 2) / 2, cv2 = curveOf(d);
+      function mk(k) { var a = { k: k, s: s, x: x, y: y }; if (cv2) a.c = cv2; return a; }
+      if (gives && (s === hold || b.some(function (a) { return a.k === 'ho' && a.to === s; }))) ed.msg = 'He is part of the handoff in this step. Move him in the next step.';
+      else if (ed.tool === 'drv') {
         if (s !== hold) ed.msg = 'Only ' + (hold + 1) + ' can drive, he has the ball at the start of this step.';
         else if (b.some(function (a) { return a.k === 'pass'; })) ed.msg = 'The ball is passed in this step. Add the drive in the next step.';
-        else setAct({ k: 'drv', s: s, x: x, y: y });
+        else setAct(mk('drv'));
       } else if (ed.tool === 'mv' || ed.tool === 'scr') {
-        if (s === hold && !b.some(function (a) { return a.k === 'pass'; })) setAct({ k: 'drv', s: s, x: x, y: y });
-        else setAct({ k: ed.tool, s: s, x: x, y: y });
+        if (s === hold && !b.some(function (a) { return a.k === 'pass'; })) setAct(mk('drv'));
+        else setAct(mk(ed.tool));
       }
       build();
     }
@@ -651,11 +738,12 @@
     var rows = S.mode === 'local' ? [row(1 - S.off), row(S.off)] : [row(me)];
     var cv = h('canvas#court');
     cv.addEventListener('pointerdown', courtTap);
-    add(sc, h('.live', h('#toast', h('span#toasttxt'), h('span.sc#shotclock')), h('#livehint'), h('#courtwrap', cv), rows));
+    add(sc, h('.live', h('#toast', h('.feed', h('span#toastprev'), h('span#toasttxt')), h('span.sc#shotclock')), h('#livehint'), h('#courtwrap', cv, h('#flash')), rows));
   }
   function updateLive() {
     var t = $('#toasttxt'); if (!t) return;
-    t.textContent = lastLine();
+    t.textContent = lastLine(); var pv = $('#toastprev'); if (pv) pv.textContent = S.log.length > 1 ? S.log[S.log.length - 2] : '';
+    var fl = $('#flash'); if (fl) { if (S.flash) { fl.textContent = S.flash.txt; fl.className = 'on t' + S.flash.team; } else fl.className = ''; }
     var hint = $('#livehint');
     if (ui.call) { hint.textContent = ui.call.steps[ui.call.got.length].split(':')[1] + '.'; hint.classList.add('on'); } else hint.classList.remove('on');
     document.querySelectorAll('.calls').forEach(function (r) {
@@ -669,7 +757,7 @@
     var c = ui.call, need = c.steps[c.got.length].split(':')[0];
     if (need === 'spot') c.got.push({ x: w.x, y: w.y });
     else {
-      var team = need === 'own' ? c.team : 1 - c.team, best = -1, bd = Math.max(5, 34 / ui.map.s);
+      var team = need === 'own' ? c.team : 1 - c.team, best = -1, bd = Math.max(6, 44 * (cv.width / r.width) / ui.map.s);
       for (var i = 0; i < 5; i++) { var k = 5 + (team * 5 + i) * 3, d = Math.hypot(frameT[k] / 10 - w.x, frameT[k + 1] / 10 - w.y); if (d < bd) { bd = d; best = i; } }
       if (best < 0) return;
       if (c.k === 'pnr' && c.got.length === 1 && c.got[0] === best) return;
@@ -755,7 +843,11 @@
       if (sim.score[0] !== S.score[0] || sim.score[1] !== S.score[1]) { S.score = sim.score.slice(); fresh2 = true; }
       if (fresh2) { if (S.mode === 'host') pubState(); renderHud(); updateLive(); }
       if (S.mode === 'host' && Net.r && ts - lastPub > 70) { lastPub = ts; Net.r.presence({ f: frameT }).catch(noop); }
-      if (sim.done) { endHold += dt; if (endHold > 1.6) { endHold = 0; endPossession(); return; } }
+      if (sim.done && !S.flash) {
+        var dn = sim.done, tx = dn.type === 'make' ? '+' + dn.pts + ' ' + TEAM[S.off] : dn.type === 'ft' ? (dn.pts ? '+' + dn.pts + ' ' + TEAM[S.off] : 'No points') : dn.type === 'to' ? 'Turnover' : 'Stop';
+        S.flash = { txt: tx, team: dn.pts ? S.off : 1 - S.off, sub: lastLine() }; if (S.mode === 'host') pubState(); renderHud(); updateLive();
+      }
+      if (sim.done) { endHold += dt; if (endHold > 2.0) { endHold = 0; endPossession(); return; } }
     }
     drawLive();
   }
@@ -775,6 +867,10 @@
   // test hook for automated checks, harmless in normal use
   window.__sideline = { state: function () { return S; }, sim: function () { return sim; }, speed: function (v) { SPEED = v; } };
 
+  var wake = null;
+  function keepAwake() { try { if (navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function (w) { wake = w; w.addEventListener('release', function () { wake = null; }); }).catch(noop); } catch (e) { /* not supported */ } }
+  document.addEventListener('click', keepAwake);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') keepAwake(); });
   netInit(); render(); requestAnimationFrame(loop);
   window.addEventListener('resize', function () { if (S.phase !== 'live') return; drawLive(); });
 })();
