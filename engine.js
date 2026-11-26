@@ -58,7 +58,7 @@
   Sim.prototype.startPossession = function (offTeam, po, pdn) {
     var self = this, i, p;
     this.offTeam = offTeam; this.defTeam = 1 - offTeam; this.done = null; this.sc = 24;
-    for (i = 0; i < 10; i++) { p = this.P[i]; p.stun = 0; p.trailUntil = 0; p.reactUntil = 0; p.stripAt = 0; p.path = null; p.scrUntil = 0; p.scrPending = false; p.imm = {}; p.driving = false; p.post = false; p.dribbled = false; p.mode = null; p.tx = p.x; p.ty = p.y; }
+    for (i = 0; i < 10; i++) { p = this.P[i]; p.lay = false; p.stun = 0; p.trailUntil = 0; p.reactUntil = 0; p.stripAt = 0; p.path = null; p.scrUntil = 0; p.scrPending = false; p.imm = {}; p.driving = false; p.post = false; p.dribbled = false; p.mode = null; p.tx = p.x; p.ty = p.y; }
     this.ball.fly = null; this.ball.reb = null;
     var offs = this.offs();
     if (this.inbound || this.ball.h < 0 || this.P[this.ball.h].team !== offTeam) {
@@ -78,7 +78,7 @@
     this.o = { style: po.style || 'motion', tempo: po.tempo || 'set', focus: po.focus == null ? null : po.focus, after: po.after || 'crash',
       plays: plays, pi: -1, beats: null, bi: 0, bt: 0, minT: 0.3, phase: 'adv', think: 0, handler: hd, setup: setup, t0: this.t, arrT: null,
       free: false, gen: false, forced: false, crossed: false, nextTC: this.t + 0.15, fb: -1, drives: 0, passes: 0, lastBallScreen: -9,
-      pendingRead: false, liveQ: null, reset: null, lastStyle: -1, fails: 0, ho: null, opt: null, soc: -1 };
+      pendingRead: false, liveQ: null, reset: null, lastStyle: -1, fails: 0, ho: null, opt: null, soc: -1, defer: null, endSh: -1, movers: [] };
     if (this.wasInbound) this.o.nextTC = this.t + 2.5;
     var style = pdn.style || 'man';
     if (style === 'mix') style = ['man', 'switch', 'zone'][Math.floor(this.rand() * 3)];
@@ -436,21 +436,33 @@
     var len = 0, lx = x0, ly = y0; pts.forEach(function (q) { q[0] = clamp(q[0], 1.5, 48.5); q[1] = clamp(q[1], 1.5, 92.5); len += dist(lx, ly, q[0], q[1]); lx = q[0]; ly = q[1]; });
     p.path = { pts: pts, ex: p.tx, ey: p.ty, len: len + dist(lx, ly, p.tx, p.ty) };
   };
-  // ordered reads drawn into a play: take the first option that is really there
+  // ordered reads attached to a step: take the first one that is really open. Returns true when one was taken.
   Sim.prototype.tryOptions = function () {
-    var o = this.o, H = this.holder(), op = o.opt, k;
-    if (!H || H.slot !== op.s) { o.opt = null; this.breakPlay(); return; }
+    var o = this.o, H = this.holder(), op = o.opt, hp = hoop(this.offTeam), k;
+    if (!H) return false;
     for (k = 0; k < op.list.length; k++) {
       var q = op.list[k];
-      if (q.k === 'pass') { var T = this.op(q.to); if (T && T !== H && this.passRisk(H, T) < 0.2 && this.catchEV(H, T) >= 0.9) { o.opt = null; o.beats = null; o.gen = false; o.soc = T.slot; this.ev(H.name + ' finds ' + T.name + '.', 'play'); this.pass(H, T); o.think = 0.3; return; } }
-      else if (q.k === 'sh') { if (this.shotInfo(H).ev >= 0.88) { o.opt = null; this.shoot(H); return; } }
-      else if (q.k === 'drv') { if (this.driveEV(H) >= 0.95) { o.opt = null; var hh = w2h(this.offTeam, H.x, H.y); o.beats = [[{ k: 'drv', s: H.slot, x: clamp(hh.hx * 0.15, -3, 3), y: 7 }]]; o.gen = true; o.bi = 0; if (!this.startBeat(0)) { o.beats = null; o.think = 0.3; } return; } }
+      if (q.k === 'pass') { var T = this.op(q.to); if (T && T !== H && this.passRisk(H, T) < 0.2 && this.catchEV(H, T) >= 0.9) { o.opt = null; o.beats = null; o.gen = false; o.soc = T.slot; this.ev(H.name + ' finds ' + T.name + '.', 'play'); this.pass(H, T); o.think = 0.3; return true; } }
+      else if (q.k === 'sh') { if (this.shotInfo(H).ev >= 0.88) { o.opt = null; this.shoot(H); return true; } }
+      else if (q.k === 'lay' || q.k === 'drv') {
+        if (pd(H, hp) < 6.8) { if (this.shotInfo(H).ev >= 0.8) { o.opt = null; this.shoot(H); return true; } }
+        else if (this.driveEV(H) >= 0.92) { o.opt = null; var hh = w2h(this.offTeam, H.x, H.y); o.beats = [[{ k: 'lay', s: H.slot, x: clamp(hh.hx * 0.15, -3, 3), y: 6.5 }]]; o.gen = true; o.bi = 0; if (!this.startBeat(0)) { o.beats = null; o.think = 0.3; } return true; }
+      }
     }
-    if (this.t - op.t > 1.3) { o.opt = null; this.breakPlay(); }
+    return false;
+  };
+  Sim.prototype.doDrive = function (a, p) { // a drive or layup action, started now
+    var o = this.o, w = h2w(this.offTeam, a.x, a.y);
+    if (a.soft) { p.tx = w.x; p.ty = w.y; p.sp = 0.7; p.dribbled = true; }
+    else { if (!this.startDrive(p, w.x, w.y, a.post)) return false; if ((a.w || a.c) && p.tx === w.x && p.ty === w.y) this.setPath(p, a.w || a.c); }
+    p.lay = a.k === 'lay'; if (o.movers.indexOf(p) < 0) o.movers.push(p);
+    return true;
   };
   Sim.prototype.startBeat = function (i) {
     var o = this.o, off = this.offTeam, movers = [], k, a, p, w, H;
-    var ord = { pass: 0, ho: 0.5, drv: 1, sh: 2, opt: 2.5, scr: 3, mv: 4 }, b = o.beats[i].slice().sort(function (x, y) { return ord[x.k] - ord[y.k]; });
+    var ord = { pass: 0, ho: 0.5, drv: 1, lay: 1, sh: 2, opt: 2.5, scr: 3, mv: 4 }, b = o.beats[i].slice().sort(function (x, y) { return ord[x.k] - ord[y.k]; });
+    var recv = -1, chain = false; o.movers = movers; o.defer = null; o.endSh = -1; o.opt = null;
+    for (k = 0; k < b.length; k++) { if (b[k].k === 'pass' || b[k].k === 'ho') recv = b[k].to; if (b[k].k === 'pass' || b[k].k === 'ho' || b[k].k === 'drv' || b[k].k === 'lay') chain = true; }
     for (k = 0; k < b.length; k++) {
       a = b[k]; p = this.op(a.s); H = this.holder();
       if (a.k === 'pass') {
@@ -458,25 +470,20 @@
         var T = this.op(a.to); if (!T || T === p) return false;
         if (this.passRisk(H, T) > (o.gen ? 0.22 : 0.2)) return false;
         if (!this.pass(H, T)) return true; // turnover ends it
-      } else if (a.k === 'sh') {
-        if (H !== p) return false;
-        if (!o.gen && this.sc > 6 && this.shotInfo(p).ev < 0.52) return false;
-        this.shoot(p); return true;
-      } else if (a.k === 'drv') {
-        if (H !== p) return false;
-        w = h2w(off, a.x, a.y);
-        if (a.soft) { p.tx = w.x; p.ty = w.y; p.sp = 0.7; p.dribbled = true; }
-        else if (!this.startDrive(p, w.x, w.y, a.post)) return true;
-        else if ((a.w || a.c) && p.tx === w.x && p.ty === w.y) this.setPath(p, a.w || a.c);
-        movers.push(p);
       } else if (a.k === 'ho') {
         if (H !== p) return false;
         var R = this.op(a.to); if (!R || R === p) return false;
         R.tx = p.x; R.ty = p.y; R.sp = 0.9; R.scrUntil = 0; R.scrPending = false; this.setPath(R, a.w || a.c);
         p.tx = p.x; p.ty = p.y; o.ho = { g: p, r: R };
+      } else if (a.k === 'drv' || a.k === 'lay') {
+        if (a.s === recv) o.defer = a; // he gets the ball in this same step, then goes
+        else if (H !== p) return false;
+        else if (!this.doDrive(a, p)) return true;
+      } else if (a.k === 'sh') {
+        if (chain) o.endSh = a.s; // shot comes at the end of the step's action
+        else { if (H !== p) return false; if (!o.gen && this.sc > 6 && this.shotInfo(p).ev < 0.52) return false; this.shoot(p); return true; }
       } else if (a.k === 'opt') {
-        if (H !== p) return false;
-        o.opt = { s: p.slot, list: a.list || [], t: this.t };
+        o.opt = { list: a.list || [], t: 0 };
       } else if (a.k === 'mv' || a.k === 'scr') {
         w = h2w(off, a.x, a.y); p.tx = clamp(w.x, 1.5, 48.5); p.ty = clamp(w.y, 1.5, 92.5); p.sp = a.k === 'mv' ? 0.92 : 0.85; p.scrUntil = 0; p.scrPending = a.k === 'scr'; this.setPath(p, a.w || a.c);
         if (a.k === 'mv' && p !== H && dist(p.x, p.y, p.tx, p.ty) > 8) {
@@ -491,31 +498,38 @@
   };
 
   Sim.prototype.runBeats = function () {
-    var o = this.o, el = this.t - o.bt, all = true, k;
+    var o = this.o, el = this.t - o.bt, all = true, k, H = this.holder(), hp = hoop(this.offTeam);
     if (o.ho) { // handoff: the ball changes hands when the receiver brushes past, and the giver acts as a screen
       var hg = o.ho.g, hr = o.ho.r;
       if (pd(hg, hr) < 2.8) {
-        o.ho = null; this.ball.h = hr.i; hr.dribbled = true; hr.tx = hr.x; hr.ty = hr.y; hr.path = null; hg.scrUntil = this.t + 1.0;
+        o.ho = null; this.ball.h = hr.i; hr.dribbled = true; hg.scrUntil = this.t + 1.0;
         var gd = this.guardOf(hr); if (gd) this.applyScreen(gd, hg, hr, hr, this.d.style === 'zone');
-        this.ev(hg.name + ' hands off to ' + hr.name + '.', 'play'); o.bt = this.t - 0.2; return;
-      }
-      if (el > 3.4) { o.ho = null; this.breakPlay(); }
-      return;
+        this.ev(hg.name + ' hands off to ' + hr.name + '.', 'play'); o.bt = this.t - 0.2; H = hr;
+        if (!(o.defer && o.defer.s === hr.slot)) { hr.tx = hr.x; hr.ty = hr.y; hr.path = null; return; }
+      } else { if (el > 3.4) { o.ho = null; this.breakPlay(); } return; }
     }
-    if (o.opt) { this.tryOptions(); return; }
+    if (o.defer) { // the new ball handler goes straight into his drive, no pause
+      if (H && H.slot === o.defer.s) { var da = o.defer; o.defer = null; if (!this.doDrive(da, H)) return; o.bt = this.t; return; }
+      if (el > 3.4) { o.defer = null; this.breakPlay(); } return;
+    }
     for (k = 0; k < o.movers.length; k++) { var p = o.movers[k]; if (dist(p.x, p.y, p.tx, p.ty) > 1.3) all = false; if (p.scrPending) all = false; }
     var cap = 3.2; for (k = 0; k < o.movers.length; k++) if (o.movers[k].path) cap = Math.max(cap, o.movers[k].path.len / 9 + 1.2);
     if ((all && el >= o.minT) || el > Math.min(cap, 6)) {
       o.movers.forEach(function (q) { q.driving = false; });
+      // end of the step, in order: finish the layup, take the drawn shot, then look at the options
+      for (k = 0; k < o.movers.length; k++) { var m = o.movers[k]; if (m.lay) { m.lay = false; if (m === H && pd(m, hp) < 6.8 && (this.sc <= 5 || this.shotInfo(m).ev >= 0.78)) { o.opt = null; this.shoot(m); return; } } } // a layup goes up only if it is there
+      if (o.endSh >= 0 && H && H.slot === o.endSh) { o.endSh = -1; if (o.gen || this.sc <= 6 || this.shotInfo(H).ev >= 0.52) { o.opt = null; this.shoot(H); return; } }
+      o.endSh = -1;
+      if (o.opt) { if (!o.opt.t) o.opt.t = this.t; if (this.tryOptions()) return; if (this.t - o.opt.t < 0.45) return; o.opt = null; }
       o.bi++;
-      if (o.bi >= o.beats.length) { o.beats = null; o.think = 0.22; if (!o.gen) o.pendingRead = true; o.gen = false; return; }
+      if (!o.beats || o.bi >= o.beats.length) { o.beats = null; o.think = 0.22; if (!o.gen) o.pendingRead = true; o.gen = false; return; }
       if (!this.startBeat(o.bi)) this.breakPlay();
     }
   };
   Sim.prototype.breakPlay = function () {
     var o = this.o;
     if (!o.gen) this.ev('The play gets broken up.', 'i');
-    o.beats = null; o.gen = false; o.think = 0.3; o.pendingRead = false; o.ho = null; o.opt = null;
+    o.beats = null; o.gen = false; o.think = 0.3; o.pendingRead = false; o.ho = null; o.opt = null; o.defer = null; o.endSh = -1;
     this.offs().forEach(function (q) { q.driving = false; q.scrPending = false; });
   };
 
@@ -597,7 +611,7 @@
     if (this.ball.fly || this.ball.reb || !H) return;
     if (H.stripAt && this.t >= H.stripAt) { var sb = this.P[H.stripBy]; H.stripAt = 0; if (H.driving && sb && pd(sb, H) < 3.6) { this.loseBall(sb.name + ' pokes it away from ' + H.name + '.', sb, 'Steal', 0, 0, 0.24); return; } }
     if (o.phase === 'adv') { this.advance(dt); return; }
-    if (this.sc <= 4.2 && !o.forced) { o.forced = true; o.beats = null; o.ho = null; o.opt = null; this.offs().forEach(function (q) { q.driving = false; }); o.phase = 'run'; o.think = Math.min(o.think, 0.05); o.free = true; }
+    if (this.sc <= 4.2 && !o.forced) { o.forced = true; o.beats = null; o.ho = null; o.opt = null; o.defer = null; this.offs().forEach(function (q) { q.driving = false; }); o.phase = 'run'; o.think = Math.min(o.think, 0.05); o.free = true; }
     if (o.phase === 'reset') { this.resetStep(); return; }
     if (o.liveQ && !o.forced) {
       var c = o.liveQ; o.liveQ = null;

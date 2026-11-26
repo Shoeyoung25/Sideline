@@ -29,7 +29,7 @@
   function plain(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
 
   // ---------- state ----------
-  function fresh() { return { phase: 'home', mode: 'local', code: '', picks: [[], []], lineup: [[], []], turn: 0, pos: 0, total: 10, off: 1, score: [0, 0], done: [false, false], log: [], guest: false, ot: false }; }
+  function fresh() { return { build: window.SIDELINE_BUILD || '', phase: 'home', mode: 'local', code: '', picks: [[], []], lineup: [[], []], turn: 0, pos: 0, total: 10, off: 1, score: [0, 0], done: [false, false], log: [], guest: false, ot: false }; }
   var S = fresh(), me = 0, auth = true, sim = null, pend = [null, null];
   var saved = { off: [null, null], def: [null, null] };
   var ui = { localStep: 0, sort: 'ovr', call: null, cool: [0, 0], built: '', fo: null, fd: null, err: '', sentPos: -1, tab: null };
@@ -55,10 +55,10 @@
         if (!a) return;
         if (a.k === 'pass') { if (slot(a.s) !== slot(a.to)) nb.push({ k: 'pass', s: slot(a.s), to: slot(a.to) }); }
         else if (a.k === 'sh') nb.push({ k: 'sh', s: slot(a.s) });
-        else if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv') { var n = { k: a.k, s: slot(a.s), x: num(a.x, -24, 24), y: num(a.y, 1, 46) }; if (a.post) n.post = 1; if (wpts(a.w)) n.w = wpts(a.w); else if (ctl(a.c)) n.c = ctl(a.c); nb.push(n); }
+        else if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv' || a.k === 'lay') { var n = { k: a.k, s: slot(a.s), x: num(a.x, -24, 24), y: num(a.y, 1, 46) }; if (a.post) n.post = 1; if (wpts(a.w)) n.w = wpts(a.w); else if (ctl(a.c)) n.c = ctl(a.c); nb.push(n); }
         else if (a.k === 'ho') { if (slot(a.s) !== slot(a.to)) { var hn = { k: 'ho', s: slot(a.s), to: slot(a.to) }; if (wpts(a.w)) hn.w = wpts(a.w); else if (ctl(a.c)) hn.c = ctl(a.c); nb.push(hn); } }
         else if (a.k === 'opt') {
-          var list = []; (Array.isArray(a.list) ? a.list : []).slice(0, 4).forEach(function (q) { if (!q) return; if (q.k === 'pass') { if (slot(q.to) !== slot(a.s)) list.push({ k: 'pass', to: slot(q.to) }); } else if (q.k === 'sh' || q.k === 'drv') list.push({ k: q.k }); });
+          var list = []; (Array.isArray(a.list) ? a.list : []).slice(0, 4).forEach(function (q) { if (!q) return; if (q.k === 'pass') { if (slot(q.to) !== slot(a.s)) list.push({ k: 'pass', to: slot(q.to) }); } else if (q.k === 'sh') list.push({ k: 'sh' }); else if (q.k === 'lay' || q.k === 'drv') list.push({ k: 'lay' }); });
           if (list.length) nb.push({ k: 'opt', s: slot(a.s), list: list });
         }
       });
@@ -223,6 +223,11 @@
       if (js !== Net.lastG) {
         Net.lastG = js; var g = JSON.parse(js), was = S.phase + ':' + S.pos;
         if (!g || typeof g !== 'object' || !Array.isArray(g.picks) || !Array.isArray(g.lineup)) return;
+        if (g.build && window.SIDELINE_BUILD && g.build !== window.SIDELINE_BUILD) { // the two phones must run the same version
+          Net.lastG = ''; ui.err = 'The host phone is on a different version. Updating this phone, then ask the host to reopen the link.'; S = fresh(); auth = true; me = 0; render();
+          if (window.sidelineLatest) window.sidelineLatest().then(function (v) { if (v !== window.SIDELINE_BUILD) window.sidelineReload(v); }).catch(noop);
+          return;
+        }
         g.mode = 'guest'; S = g;
         if (S.phase + ':' + S.pos !== was && S.phase === 'coach') { ui.fo = null; ui.fd = null; }
         render();
@@ -275,7 +280,8 @@
         h('.row', h('.grow', code), h('button.btn', { text: 'Join', onclick: function () { joinGame(code.value); } })))
         : h('p.note', { text: 'Two phone play appears here when this page can open a live room. One phone works everywhere: pass it between coaches.' }),
       ui.err ? h('.banner', { text: ui.err }) : null,
-      h('p.note', { text: 'Players and ratings come from 2026-27 per-game stats through Nov 26, 2026. ' + BB.players.length + ' players in the pool.' }));
+      h('p.note', { text: 'Players and ratings come from 2026-27 stats through Nov 26, 2026. ' + BB.players.length + ' players in the pool.' }),
+      window.SIDELINE_BUILD && window.SIDELINE_BUILD.charAt(0) !== '_' ? h('p.note', { text: 'Version ' + window.SIDELINE_BUILD + '. Both phones should show the same one.' }) : null);
   }
   function viewLobby() {
     return h('.center',
@@ -452,9 +458,9 @@
     for (var i = 0; i < upto && i < p.beats.length; i++) {
       p.beats[i].forEach(function (a) { if (a.k === 'pass') ball = a.to; });
       p.beats[i].forEach(function (a) {
-        if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv') pos[a.s] = [a.x, a.y];
-        else if (a.k === 'ho') { var g = pos[a.s], r0 = pos[a.to], dx = g[0] - r0[0], dy = g[1] - r0[1], l = Math.sqrt(dx * dx + dy * dy) || 1; pos[a.to] = [g[0] + dx / l * 2, g[1] + dy / l * 2]; ball = a.to; }
+        if (a.k === 'ho') { var g = pos[a.s], r0 = pos[a.to], dx = g[0] - r0[0], dy = g[1] - r0[1], l = Math.sqrt(dx * dx + dy * dy) || 1; pos[a.to] = [g[0] + dx / l * 2, g[1] + dy / l * 2]; ball = a.to; }
       });
+      p.beats[i].forEach(function (a) { if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv' || a.k === 'lay') pos[a.s] = [a.x, a.y]; });
     }
     return { pos: pos, ball: ball };
   }
@@ -520,20 +526,26 @@
       if (opts.setupOnly) break;
       var st = playState(play, i), en = playState(play, i + 1), al = opts.beat < 0 ? 0.9 : (i === cur ? 1 : 0.25);
       ctx.globalAlpha = al; ctx.strokeStyle = ctx.fillStyle = '#18202e'; ctx.lineWidth = Math.max(1.4, s * 0.32);
+      var hoA = play.beats[i].filter(function (a) { return a.k === 'ho'; })[0];
       play.beats[i].forEach(function (a) {
         var p0 = st.pos[a.s]; function px(w) { return w ? w.map(function (q) { return [X(q[0]), Y(q[1])]; }) : null; }
+        if ((a.k === 'drv' || a.k === 'lay') && hoA && hoA.to === a.s) p0 = st.pos[hoA.s]; // he starts from where he took the handoff
         if (a.k === 'pass') arrow(ctx, X(p0[0]), Y(p0[1]), X(en.pos[a.to][0]), Y(en.pos[a.to][1]), 'pass', s);
-        else if (a.k === 'sh') arrow(ctx, X(p0[0]), Y(p0[1]), X(0), Y(5.25), 'sh', s);
+        else if (a.k === 'sh') { var sp = en.pos[a.s]; arrow(ctx, X(sp[0]), Y(sp[1]), X(0), Y(5.25), 'sh', s); }
         else if (a.k === 'ho') { // receiver runs to the giver, two short bars mark the exchange
           var r0 = st.pos[a.to]; arrow(ctx, X(r0[0]), Y(r0[1]), X(p0[0]), Y(p0[1]), 'ho', s, px(wayOf(a, r0, p0)));
           var hx = X(p0[0]), hy = Y(p0[1]), q = Math.max(4, s * 1.5); ctx.save(); ctx.strokeStyle = '#f08a24'; ctx.lineWidth = Math.max(2, s * 0.5); ctx.beginPath(); ctx.moveTo(hx - q * 1.9, hy - q); ctx.lineTo(hx - q * 1.9, hy + q); ctx.moveTo(hx - q * 2.5, hy - q); ctx.lineTo(hx - q * 2.5, hy + q); ctx.stroke(); ctx.restore();
         } else if (a.k === 'opt') {
+          var hp0 = en.pos[en.ball];
           a.list.forEach(function (q, n) {
             var tx, ty, kind = q.k === 'pass' ? 'pass' : q.k === 'sh' ? 'sh' : 'drv';
-            if (q.k === 'pass') { tx = X(en.pos[q.to][0]); ty = Y(en.pos[q.to][1]); } else if (q.k === 'sh') { tx = X(0); ty = Y(5.25); } else { tx = X(p0[0] * 0.15); ty = Y(7); }
-            var sx = X(p0[0]), sy = Y(p0[1]); arrow(ctx, sx, sy, tx, ty, kind, s); if (W > 300) badge(ctx, sx + (tx - sx) * 0.55, sy + (ty - sy) * 0.55, n + 1, s);
+            if (q.k === 'pass') { tx = X(en.pos[q.to][0]); ty = Y(en.pos[q.to][1]); } else if (q.k === 'sh') { tx = X(0); ty = Y(5.25); } else { tx = X(hp0[0] * 0.15); ty = Y(6.5); }
+            var sx = X(hp0[0]), sy = Y(hp0[1]); ctx.save(); ctx.globalAlpha *= 0.75; arrow(ctx, sx, sy, tx, ty, kind, s); ctx.restore(); if (W > 300) badge(ctx, sx + (tx - sx) * 0.55, sy + (ty - sy) * 0.55, n + 1, s);
           });
-        } else arrow(ctx, X(p0[0]), Y(p0[1]), X(a.x), Y(a.y), a.k, s, px(wayOf(a, p0, [a.x, a.y])));
+        } else {
+          arrow(ctx, X(p0[0]), Y(p0[1]), X(a.x), Y(a.y), a.k === 'lay' ? 'drv' : a.k, s, px(wayOf(a, p0, [a.x, a.y])));
+          if (a.k === 'lay') { arrow(ctx, X(a.x), Y(a.y), X(0), Y(5.25), 'sh', s); ctx.save(); ctx.fillStyle = '#f08a24'; ctx.beginPath(); ctx.arc(X(a.x), Y(a.y), Math.max(3, s * 0.8), 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+        }
       });
     }
     ctx.globalAlpha = 1;
@@ -591,7 +603,8 @@
       if (ed.concept) return 'Tap the ' + ed.concept.c.pick[ed.concept.picks.length].toLowerCase() + '.';
       if (ed.step === 0) return 'Setup: drag players to where they start. Tap a player to give him the ball.';
       var hold = st().ball + 1;
-      return { mv: 'Cut: drag any player along the route he runs. The line follows your finger.', scr: 'Screen: drag a player to where he sets it.', drv: 'Drive: drag ' + hold + ' along the path he attacks.', pass: 'Pass: tap who ' + hold + ' passes to.', ho: 'Handoff: tap who takes it from ' + hold + ', or drag him along the route he runs.', opt: 'Options: tap players in the order ' + hold + ' should look for them. Tap ' + hold + ' himself for a shot.', sh: '' }[ed.tool];
+      var now = cur() + 1;
+      return { mv: 'Cut: drag any player along the route he runs. The line follows your finger.', scr: 'Screen: drag a player to where he sets it.', drv: 'Drive: drag ' + now + ' along the path he attacks' + (now !== hold ? ', starting from where he gets the ball.' : '.'), lay: 'Layup: ' + now + ' goes to the rim and finishes if it is open. Drag from him to shape the route.', pass: 'Pass: tap who ' + hold + ' passes to.', ho: 'Handoff: tap who takes it from ' + hold + ', or drag him along the route he runs. Then add Drive or Layup in this same step.', sh: 'Shoot: added to this step. Tap another tool to keep drawing.' }[ed.tool] || '';
     }
     // the drag as a few waypoints (Ramer-Douglas-Peucker), or null when it is close to a straight line
     function curveOf(d) {
@@ -604,24 +617,29 @@
       do { keep = []; rdp(0, pts.length - 1, eps, keep); eps *= 1.4; } while (keep.length > 6);
       return keep.length ? keep.map(function (i) { return [Math.round(pts[i][0] * 2) / 2, Math.round(pts[i][1] * 2) / 2]; }) : null;
     }
-    function isMove(q) { return q.k === 'mv' || q.k === 'scr' || q.k === 'drv'; }
+    function isMove(q) { return q.k === 'mv' || q.k === 'scr' || q.k === 'drv' || q.k === 'lay'; }
+    function isGo(q) { return q.k === 'drv' || q.k === 'lay'; }
+    // who has the ball once this step's pass or handoff is done, and where he gets it
+    function cur() { var b = beat(), hd = st().ball; if (b) b.forEach(function (a) { if (a.k === 'pass' || a.k === 'ho') hd = a.to; }); return hd; }
+    function ballPt() { var b = beat(), s0 = st(), pt = s0.pos[s0.ball]; if (b) b.forEach(function (a) { if (a.k === 'ho') pt = s0.pos[a.s]; else if (a.k === 'pass') pt = s0.pos[a.to]; }); return pt; }
     function setAct(a) {
       var b = beat(); if (!b) return;
       for (var i = b.length - 1; i >= 0; i--) {
         var q = b[i], kill;
-        if (a.k === 'pass' || a.k === 'ho') kill = q.k === 'pass' || q.k === 'ho' || q.k === 'opt' || q.k === 'sh' || (a.k === 'ho' && isMove(q) && (q.s === a.s || q.s === a.to));
-        else if (a.k === 'opt' || a.k === 'sh') kill = q.k === 'opt' || q.k === 'sh';
+        if (a.k === 'pass' || a.k === 'ho') kill = q.k === 'pass' || q.k === 'ho' || isGo(q) || q.k === 'sh' || (a.k === 'ho' && isMove(q) && (q.s === a.s || q.s === a.to));
+        else if (isGo(a)) kill = isGo(q) || (isMove(q) && q.s === a.s);
+        else if (a.k === 'sh') kill = q.k === 'sh';
         else kill = isMove(q) && q.s === a.s;
         if (kill) b.splice(i, 1);
       }
-      b.push(a);
+      b.push(a); syncOpt();
     }
-    function ballBusy(b) { return b && b.some(function (a) { return a.k === 'pass' || a.k === 'drv' || a.k === 'sh' || a.k === 'ho' || a.k === 'opt'; }); }
     function optAct(create) {
       var b = beat(), o = b && b.filter(function (a) { return a.k === 'opt'; })[0];
-      if (!o && create) { if (ballBusy(b) || !b) { trimEmpty(); addStep(); b = beat(); } o = { k: 'opt', s: st().ball, list: [] }; b.push(o); }
+      if (!o && create) { if (!b) { addStep(); b = beat(); } o = { k: 'opt', s: cur(), list: [] }; b.push(o); }
       return o;
     }
+    function syncOpt() { var o = optAct(false); if (!o) return; var c = cur(); o.s = c; o.list = o.list.filter(function (q) { return !(q.k === 'pass' && q.to === c); }); if (!o.list.length) { var b = beat(); b.splice(b.indexOf(o), 1); } }
     function addOpt(q) {
       var o = optAct(true); if (o.list.length >= 4) { ed.msg = 'Four options is the limit.'; return; }
       if (o.list.some(function (x) { return x.k === q.k && x.to === q.to; })) return;
@@ -639,11 +657,16 @@
       var tl = [], i; // one entry per step: who runs where, and what the ball does
       for (i = 0; i < play.beats.length; i++) {
         var st0 = playState(play, i), en = playState(play, i + 1), lines = [], maxL = 0, e = { st: st0, en: en, pass: null, ho: null, shot: false, opt: null };
+        var hoP = play.beats[i].filter(function (a) { return a.k === 'ho'; })[0];
         for (var p = 0; p < 5; p++) lines.push([st0.pos[p], en.pos[p]]);
         play.beats[i].forEach(function (a) {
-          if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv') lines[a.s] = smoothLine([st0.pos[a.s]].concat(wayOf(a, st0.pos[a.s], [a.x, a.y]) || [], [[a.x, a.y]]), 7);
-          else if (a.k === 'ho') { lines[a.to] = smoothLine([st0.pos[a.to]].concat(wayOf(a, st0.pos[a.to], st0.pos[a.s]) || [], [en.pos[a.to]]), 7); e.ho = a; }
+          if (a.k === 'ho') { lines[a.to] = smoothLine([st0.pos[a.to]].concat(wayOf(a, st0.pos[a.to], st0.pos[a.s]) || [], [st0.pos[a.s]]), 7); e.ho = a; e.hoLen = lines[a.to].length; }
           else if (a.k === 'pass') e.pass = a; else if (a.k === 'sh') e.shot = true; else if (a.k === 'opt') e.opt = a;
+        });
+        play.beats[i].forEach(function (a) {
+          if (a.k !== 'mv' && a.k !== 'scr' && a.k !== 'drv' && a.k !== 'lay') return;
+          var from = hoP && hoP.to === a.s ? st0.pos[hoP.s] : st0.pos[a.s], seg = smoothLine([from].concat(wayOf(a, from, [a.x, a.y]) || [], [[a.x, a.y]]), 7);
+          lines[a.s] = hoP && hoP.to === a.s ? lines[a.s].concat(seg.slice(1)) : seg; if (a.k === 'lay') e.shot = true;
         });
         lines.forEach(function (ln) { var l = 0; for (var k = 1; k < ln.length; k++) l += Math.hypot(ln[k][0] - ln[k - 1][0], ln[k][1] - ln[k - 1][1]); maxL = Math.max(maxL, l); });
         e.lines = lines; e.dur = Math.max(0.7, Math.min(2.4, maxL / 13)) + 0.35; tl.push(e);
@@ -654,14 +677,15 @@
         if (k >= tl.length) { ed.anim = 0; redraw(); return; }
         var e = tl[k], u = Math.min(1, t / (e.dur - 0.35)), pos = e.lines.map(function (ln) { return along(ln, u); }), bp;
         if (e.pass) { var pu = Math.min(1, t / 0.4); bp = [pos[e.pass.s][0] + (pos[e.pass.to][0] - pos[e.pass.s][0]) * pu, pos[e.pass.s][1] + (pos[e.pass.to][1] - pos[e.pass.s][1]) * pu]; }
-        else if (e.ho) bp = pos[u < 0.9 ? e.ho.s : e.ho.to];
-        else if (e.shot) { var su = Math.min(1, t / 0.6), sp = pos[e.st.ball]; bp = [sp[0] + (0 - sp[0]) * su, sp[1] + (5.25 - sp[1]) * su]; }
+        else if (e.ho) bp = Math.hypot(pos[e.ho.to][0] - e.st.pos[e.ho.s][0], pos[e.ho.to][1] - e.st.pos[e.ho.s][1]) < 2.6 || e.took ? (e.took = 1, pos[e.ho.to]) : pos[e.ho.s];
         else bp = pos[e.st.ball];
+        if (e.pass && t >= 0.4) bp = pos[e.pass.to];
+        if (e.shot && t > e.dur - 0.35) { var su = Math.min(1, (t - (e.dur - 0.35)) / 0.3), sp = pos[e.en.ball]; bp = [sp[0] + (0 - sp[0]) * su, sp[1] + (5.25 - sp[1]) * su]; }
         ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#dcae74'; ctx.fillRect(0, 0, cv.width, cv.height); drawHalf(ctx, s);
         var r = Math.max(5, s * 1.9);
         pos.forEach(function (q, n) { var x = (q[0] + 25) * s, y = q[1] * s; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = Math.max(1, s * 0.25); ctx.strokeStyle = '#18202e'; ctx.stroke(); ctx.fillStyle = '#18202e'; ctx.font = '700 ' + Math.round(r * 1.25) + 'px "Barlow Condensed", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(n + 1), x, y + r * 0.08); });
         ctx.beginPath(); ctx.arc((bp[0] + 25) * s + r * 0.7, bp[1] * s + r * 0.7, r * 0.5, 0, Math.PI * 2); ctx.fillStyle = '#f08a24'; ctx.fill(); ctx.strokeStyle = '#18202e'; ctx.stroke();
-        ctx.fillStyle = '#18202e'; ctx.font = '600 ' + Math.round(s * 2) + 'px "Barlow", Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText('Step ' + (k + 1) + (e.opt ? ': reads his options' : ''), s * 1.2, cv.height - s * 3.4);
+        ctx.fillStyle = '#18202e'; ctx.font = '600 ' + Math.round(s * 2) + 'px "Barlow", Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText('Step ' + (k + 1) + (e.opt ? ', then reads his options' : ''), s * 1.2, cv.height - s * 3.4);
         ed.anim = requestAnimationFrame(frame);
       }
       ed.anim = requestAnimationFrame(frame);
@@ -675,10 +699,11 @@
       var steps = [h('button.chip' + (ed.step === 0 ? '.on' : ''), { text: 'Setup', onclick: function () { trimEmpty(); ed.step = 0; ed.concept = null; build(); } })]
         .concat(ed.p.beats.map(function (b, i) { return h('button.chip' + (ed.step === i + 1 ? '.on' : ''), { text: 'Step ' + (i + 1), onclick: function () { ed.step = i + 1; ed.concept = null; build(); } }); }))
         .concat([h('button.chip', { text: '+ Step', onclick: function () { trimEmpty(); addStep(); if (ed.tool === 'sh') ed.tool = 'mv'; build(); } })]);
-      var tools = [['mv', 'Cut'], ['scr', 'Screen'], ['drv', 'Drive'], ['pass', 'Pass'], ['ho', 'Handoff'], ['opt', 'Options'], ['sh', 'Shoot']].map(function (t) {
+      var tools = [['mv', 'Cut'], ['scr', 'Screen'], ['pass', 'Pass'], ['ho', 'Handoff'], ['drv', 'Drive'], ['lay', 'Layup'], ['sh', 'Shoot']].map(function (t) {
         return h('button.chip' + (ed.tool === t[0] && ed.step > 0 ? '.on' : ''), { text: t[1], disabled: ed.step === 0, onclick: function () {
           ed.msg = ''; ed.concept = null;
-          if (t[0] === 'sh') { var b = beat(); if (ballBusy(b)) { trimEmpty(); addStep(); } else if (!b) addStep(); var hs = st().ball; setAct({ k: 'sh', s: hs }); ed.msg = (hs + 1) + ' shoots. That ends the play.'; }
+          if (t[0] === 'sh') { if (!beat()) addStep(); var hs = cur(); setAct({ k: 'sh', s: hs }); ed.tool = 'sh'; ed.msg = (hs + 1) + ' shoots at the end of this step.'; }
+          else if (t[0] === 'lay') { if (!beat()) addStep(); var hl = cur(), bp = ballPt(); setAct({ k: 'lay', s: hl, x: bp[0] >= 0 ? 1.5 : -1.5, y: 6.5 }); ed.tool = 'lay'; ed.msg = (hl + 1) + ' goes in for the layup. Drag from him to shape the route.'; }
           else ed.tool = t[0];
           build();
         } });
@@ -705,15 +730,16 @@
             h('button.btn.small', { text: 'Undo', onclick: function () { ed.msg = ''; ed.concept = null; var b = beat(); if (b && b.length) b.pop(); else if (ed.step > 0) { ed.p.beats.splice(ed.step - 1, 1); ed.step = Math.max(0, ed.step - 1); } build(); } }),
             h('button.btn.small', { text: 'Clear', onclick: function () { ed.p.beats = []; ed.step = 0; ed.msg = ''; ed.concept = null; build(); } })),
           (function () {
-            if (ed.tool !== 'opt' || ed.step === 0) return null;
-            var o = optAct(false), hold = st().ball, list = o ? o.list : [];
-            function lab(q) { return q.k === 'pass' ? 'Pass to ' + (q.to + 1) + ' ' + pl[q.to].tag : q.k === 'sh' ? 'Shoot' : 'Drive to the rim'; }
-            return h('.card', h('h3', { text: 'Options for ' + (hold + 1) + ' ' + pl[hold].tag + ', in order' }),
-              list.length ? list.map(function (q, n) { return h('.row', h('span.ovr', { text: n + 1 }), h('span.grow', { text: lab(q) }), h('button.btn.small', { text: 'Remove', onclick: function () { list.splice(n, 1); if (!list.length) { var b = beat(); b.splice(b.indexOf(o), 1); } build(); } })); }) : h('p.note', { text: 'None yet. He takes the first one that is open. If none is, the play breaks to your backup or freelance.' }),
-              h('.chips', [0, 1, 2, 3, 4].filter(function (i) { return i !== hold; }).map(function (i) { return h('button.chip', { text: 'Pass to ' + (i + 1), onclick: function () { addOpt({ k: 'pass', to: i }); build(); } }); })
-                .concat([h('button.chip', { text: 'Shoot', onclick: function () { addOpt({ k: 'sh' }); build(); } }), h('button.chip', { text: 'Drive', onclick: function () { addOpt({ k: 'drv' }); build(); } })])));
+            if (ed.step === 0) return null;
+            var o = optAct(false), hold = cur(), list = o ? o.list : [];
+            function lab(q) { return q.k === 'pass' ? 'Pass to ' + (q.to + 1) + ' ' + pl[q.to].tag : q.k === 'sh' ? 'Shoot' : 'Layup'; }
+            return h('.card', h('h3', { text: 'When this step ends, ' + (hold + 1) + ' ' + pl[hold].tag + ' looks for' }),
+              list.length ? list.map(function (q, n) { return h('.row', h('span.ovr', { text: n + 1 }), h('span.grow', { text: lab(q) }), h('button.btn.small', { text: 'Remove', onclick: function () { list.splice(n, 1); syncOpt(); build(); } })); }) : null,
+              h('.chips', [0, 1, 2, 3, 4].filter(function (i) { return i !== hold; }).map(function (i) { return h('button.chip', { text: '+ Pass to ' + (i + 1), onclick: function () { addOpt({ k: 'pass', to: i }); build(); } }); })
+                .concat([h('button.chip', { text: '+ Layup', onclick: function () { addOpt({ k: 'lay' }); build(); } }), h('button.chip', { text: '+ Shoot', onclick: function () { addOpt({ k: 'sh' }); build(); } })])),
+              h('p.note', { text: 'He takes the first one that is open, in this order. If none is open the play moves on to the next step.' }));
           })(),
-          h('p.note', { text: 'Solid arrow: cut. Bar end: screen. Zigzag: drive. Dashed: pass. Orange bars: handoff. Dotted: shot. Numbers: options in order. A play that ends without a shot hands over to a read.' }),
+          h('p.note', { text: 'Solid arrow: cut. Bar end: screen. Zigzag: drive. Orange dot: layup. Dashed: pass. Orange bars: handoff. Dotted: shot. Numbers: options in order. One step can chain a handoff or pass into a drive, layup or shot.' }),
           lineupStrip(team)))
       ]);
       var W = Math.min(536, ov.clientWidth - 24), dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -725,10 +751,12 @@
     function near(p) { var pos = st().pos, best = -1, bd = 4.2; pos.forEach(function (q, i) { var d = Math.hypot(q[0] - p.x, q[1] - p.y); if (d < bd) { bd = d; best = i; } }); return best; }
     function down(e) {
       if (ed.anim) { cancelAnimationFrame(ed.anim); ed.anim = 0; }
-      var p = pt(e), s = near(p); ed.msg = '';
+      var p = pt(e), s = near(p), x0, y0; ed.msg = '';
+      if (ed.step > 0 && (ed.tool === 'drv' || ed.tool === 'lay')) { var bp = ballPt(); if (Math.hypot(bp[0] - p.x, bp[1] - p.y) < 5) { s = cur(); x0 = bp[0]; y0 = bp[1]; } }
       if (s < 0) return;
+      if (x0 == null) { x0 = st().pos[s][0]; y0 = st().pos[s][1]; }
       try { cv.setPointerCapture(e.pointerId); } catch (x) { /* fine */ }
-      ed.drag = { s: s, x0: st().pos[s][0], y0: st().pos[s][1], x: p.x, y: p.y, moved: false, pts: [] };
+      ed.drag = { s: s, x0: x0, y0: y0, x: p.x, y: p.y, moved: false, pts: [] };
     }
     function move(e) {
       if (!ed.drag) return; var p = pt(e);
@@ -752,29 +780,35 @@
         build(); return;
       }
       if (ed.step === 0) { if (!d.moved) ed.p.ball = s; build(); return; }
-      var gives = b.some(function (a) { return a.k === 'ho'; });
-      if (ed.tool === 'opt') { addOpt(s === hold ? { k: 'sh' } : { k: 'pass', to: s }); build(); return; }
+      var hoB = b.filter(function (a) { return a.k === 'ho'; })[0], passB = b.filter(function (a) { return a.k === 'pass'; })[0], now = cur();
       if (ed.tool === 'pass') {
-        if (s === hold) { ed.msg = (hold + 1) + ' has the ball. Tap the player he passes to.'; }
-        else if (b.some(function (a) { return a.k === 'drv' && a.s === hold; })) ed.msg = 'He is already driving in this step. Add the pass in the next step.';
-        else setAct({ k: 'pass', s: hold, to: s });
+        if (hoB) ed.msg = 'This step already has a handoff. Add the pass in the next step.';
+        else if (s === hold) ed.msg = (hold + 1) + ' has the ball. Tap the player he passes to.';
+        else { setAct({ k: 'pass', s: hold, to: s }); ed.msg = (s + 1) + ' gets the pass. He can drive, lay it in or shoot in this same step.'; }
         build(); return;
       }
       if (ed.tool === 'ho') {
-        if (s === hold) ed.msg = (hold + 1) + ' has the ball. Tap or drag the player who takes it from him.';
-        else { var hp = st().pos[hold], act = { k: 'ho', s: hold, to: s }; if (d.moved) { d.x = hp[0]; d.y = hp[1]; var hc = curveOf(d); if (hc) act.w = hc; } setAct(act); ed.msg = (s + 1) + ' takes the handoff from ' + (hold + 1) + '. Draw what he does with it in the next step.'; }
+        if (passB) ed.msg = 'This step already has a pass. Add the handoff in the next step.';
+        else if (s === hold) ed.msg = (hold + 1) + ' has the ball. Tap or drag the player who takes it from him.';
+        else { var hp = st().pos[hold], act = { k: 'ho', s: hold, to: s }; if (d.moved) { d.x = hp[0]; d.y = hp[1]; var hc = curveOf(d); if (hc) act.w = hc; } setAct(act); ed.msg = (s + 1) + ' takes the handoff. Now tap Drive or Layup to keep him going in this same step.'; }
+        build(); return;
+      }
+      if (ed.tool === 'sh') { build(); return; }
+      var x = Math.round(d.x * 2) / 2, y = Math.round(d.y * 2) / 2, cv2 = d.moved ? curveOf(d) : null;
+      function mk(k) { var a = { k: k, s: s, x: x, y: y }; if (cv2) a.w = cv2; return a; }
+      if (ed.tool === 'lay') {
+        if (s !== now) ed.msg = 'Only ' + (now + 1) + ' can lay it in, he has the ball in this step.';
+        else { var la = { k: 'lay', s: s, x: (d.moved ? d.x : d.x0) >= 0 ? 1.5 : -1.5, y: 6.5 }; if (cv2) la.w = cv2; setAct(la); }
         build(); return;
       }
       if (!d.moved) { build(); return; }
-      var x = Math.round(d.x * 2) / 2, y = Math.round(d.y * 2) / 2, cv2 = curveOf(d);
-      function mk(k) { var a = { k: k, s: s, x: x, y: y }; if (cv2) a.w = cv2; return a; }
-      if (gives && (s === hold || b.some(function (a) { return a.k === 'ho' && a.to === s; }))) ed.msg = 'He is part of the handoff in this step. Move him in the next step.';
+      if (hoB && s === hoB.s) ed.msg = (s + 1) + ' is handing the ball off in this step. Move him in the next step.';
       else if (ed.tool === 'drv') {
-        if (s !== hold) ed.msg = 'Only ' + (hold + 1) + ' can drive, he has the ball at the start of this step.';
-        else if (b.some(function (a) { return a.k === 'pass'; })) ed.msg = 'The ball is passed in this step. Add the drive in the next step.';
+        if (s !== now) ed.msg = 'Only ' + (now + 1) + ' can drive, he has the ball in this step.';
         else setAct(mk('drv'));
       } else if (ed.tool === 'mv' || ed.tool === 'scr') {
-        if (s === hold && !b.some(function (a) { return a.k === 'pass'; })) setAct(mk('drv'));
+        if (s === now) setAct(mk('drv')); // the ball handler moving is a dribble
+        else if (hoB && s === hoB.to) ed.msg = (s + 1) + ' is taking the handoff in this step.';
         else setAct(mk(ed.tool));
       }
       build();
@@ -945,6 +979,13 @@
   function keepAwake() { try { if (navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function (w) { wake = w; w.addEventListener('release', function () { wake = null; }); }).catch(noop); } catch (e) { /* not supported */ } }
   document.addEventListener('click', keepAwake);
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') keepAwake(); });
+  var BUILD = window.SIDELINE_BUILD || '';
+  function checkUpdate() {
+    if (!window.sidelineLatest || (S.phase !== 'home' && S.phase !== 'final' && S.phase !== 'joining')) return;
+    window.sidelineLatest().then(function (v) { if (v && BUILD && v !== BUILD) window.sidelineReload(v); }).catch(noop);
+  }
+  setInterval(checkUpdate, 45000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') checkUpdate(); });
   netInit(); render(); requestAnimationFrame(loop);
   window.addEventListener('resize', function () { if (S.phase !== 'live') return; drawLive(); });
 })();

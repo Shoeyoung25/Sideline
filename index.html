@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Sideline</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -171,10 +172,26 @@ h4 { font-family: var(--f-display); font-size: 14px; font-weight: 600; text-tran
   <main id="screen"></main>
 </div>
 <div id="overlay"></div>
-<script src="data.js"></script>
-<script src="engine.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="app.js"></script>
+<script>
+/* Always run the newest version. Browsers keep old copies of pages, so on every open this asks the server
+   (bypassing the cache) which build is current, reloads if this page is older, and loads the game files
+   under that build's name so a stale copy can never be used. */
+(function () {
+  var BUILD = 'Nov 26 16:55'; window.SIDELINE_BUILD = BUILD;
+  function load(v) {
+    var files = ['data.js', 'engine.js', 'app.js'], i = 0;
+    (function next() { if (i >= files.length) return; var s = document.createElement('script'); s.src = files[i++] + '?v=' + encodeURIComponent(v); s.onload = next; s.onerror = next; document.body.appendChild(s); })();
+  }
+  window.sidelineLatest = function () { return fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) { return String(j.v); }); };
+  window.sidelineReload = function (v) { location.replace(location.pathname + '?v=' + encodeURIComponent(v)); };
+  var asked = (location.search.match(/[?&]v=([^&]+)/) || [])[1];
+  window.sidelineLatest().then(function (v) {
+    if (v !== BUILD && decodeURIComponent(asked || '') !== v) { window.sidelineReload(v); return; }
+    load(v);
+  }).catch(function () { load(BUILD); });
+})();
+</script>
 </body>
 </html>

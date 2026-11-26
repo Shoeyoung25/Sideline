@@ -229,28 +229,28 @@
   BB.PLAYS = [
     { id: 'hpnr', name: 'High pick and roll', group: 'Pick and roll', note: '5 screens for 1 at the top, then rolls to the rim.',
       setup: BB.FORM['High screen'], ball: 0,
-      beats: [[A('scr', 4, 3.5, 29)], [A('drv', 0, 9, 17), A('mv', 4, -1.5, 8)]] },
+      beats: [[A('scr', 4, 3.5, 29)], [A('drv', 0, 9, 17), A('mv', 4, -1.5, 8), { k: 'opt', s: 0, list: [{ k: 'lay' }, { k: 'pass', to: 4 }, { k: 'sh' }] }]] },
     { id: 'ppop', name: 'Pick and pop', group: 'Pick and roll', note: '5 screens for 1, then steps out for a jumper.',
       setup: BB.FORM['High screen'], ball: 0,
       beats: [[A('scr', 4, 3.5, 29)], [A('drv', 0, 10, 18), A('mv', 4, -9, 27)]] },
     { id: 'horns', name: 'Horns', group: 'Pick and roll', note: 'Bigs at both elbows. 4 screens and rolls, 5 pops.',
       setup: BB.FORM['Horns'], ball: 0,
-      beats: [[A('scr', 3, -3.5, 29)], [A('drv', 0, -9, 17), A('mv', 3, 1.5, 8), A('mv', 4, 7, 27)], [{ k: 'opt', s: 0, list: [{ k: 'pass', to: 3 }, { k: 'pass', to: 4 }, { k: 'sh' }] }]] },
+      beats: [[A('scr', 3, -3.5, 29)], [A('drv', 0, -9, 17), A('mv', 3, 1.5, 8), A('mv', 4, 7, 27), { k: 'opt', s: 0, list: [{ k: 'pass', to: 3 }, { k: 'pass', to: 4 }, { k: 'lay' }, { k: 'sh' }] }]] },
     { id: 'pin', name: 'Pin down', group: 'Off-ball screens', note: '5 screens down for 2, who comes up to the wing for a shot.',
       setup: [[0, 30], [-22.5, 6.5], [18.5, 22], [22.5, 6.5], [-12, 14]], ball: 0,
       beats: [[A('scr', 4, -18, 11)], [A('mv', 1, -17, 23.5)], [A('pass', 0, 1)], [A('sh', 1)]] },
     { id: 'flare', name: 'Flare screen', group: 'Off-ball screens', note: '4 screens away from the ball and 3 fades to the corner side for a three.',
       setup: [[-8, 30], [-20, 20], [10, 28], [16, 20], [-7.5, 9.5]], ball: 0,
       beats: [[A('scr', 3, 13, 25)], [A('mv', 2, 21, 17)], [A('pass', 0, 2)], [A('sh', 2)]] },
-    { id: 'dho', name: 'Handoff', group: 'Handoffs', note: '1 passes to 5 at the elbow, 2 curls in for the handoff and attacks.',
+    { id: 'dho', name: 'Handoff', group: 'Handoffs', note: '1 passes to 5 at the elbow. 2 takes the handoff and goes straight to the rim in one step.',
       setup: [[0, 31], [19, 21], [-22.5, 6.5], [22.5, 6.5], [7, 21]], ball: 0,
-      beats: [[A('pass', 0, 4), A('mv', 0, -14, 26)], [{ k: 'ho', s: 4, to: 1, c: [14, 26] }], [A('drv', 1, 0, 12), A('mv', 4, 3, 7.5)], [{ k: 'opt', s: 1, list: [{ k: 'sh' }, { k: 'pass', to: 4 }, { k: 'pass', to: 0 }] }]] },
+      beats: [[A('pass', 0, 4), A('mv', 0, -14, 26)], [{ k: 'ho', s: 4, to: 1, w: [[14, 26]] }, { k: 'lay', s: 1, x: 1.5, y: 6.5, w: [[3, 15]] }], [A('mv', 4, 3, 7.5), { k: 'opt', s: 1, list: [{ k: 'pass', to: 4 }, { k: 'pass', to: 0 }, { k: 'sh' }] }]] },
     { id: 'weave', name: 'Handoff weave', group: 'Handoffs', note: 'Two handoffs across the top to get a guard going downhill.',
       setup: [[-10, 29], [10, 29], [-22.5, 6.5], [22.5, 6.5], [0, 18]], ball: 0,
-      beats: [[{ k: 'drv', s: 0, x: 0, y: 28 }], [{ k: 'ho', s: 0, to: 1, c: [6, 32] }], [{ k: 'drv', s: 1, x: -9, y: 16, c: [-8, 26] }, A('mv', 4, 5, 8), A('mv', 0, 16, 25)], [{ k: 'opt', s: 1, list: [{ k: 'sh' }, { k: 'pass', to: 4 }, { k: 'pass', to: 0 }] }]] },
+      beats: [[{ k: 'drv', s: 0, x: 0, y: 28 }], [{ k: 'ho', s: 0, to: 1, w: [[6, 32]] }, { k: 'drv', s: 1, x: -9, y: 16, w: [[-8, 26]] }, A('mv', 4, 5, 8), { k: 'opt', s: 1, list: [{ k: 'lay' }, { k: 'pass', to: 4 }, { k: 'sh' }] }]] },
     { id: 'gng', name: 'Give and go', group: 'Cuts', note: '1 passes to the wing and cuts hard to the rim for the return pass.',
       setup: BB.FORM['5 out'], ball: 0,
-      beats: [[A('pass', 0, 1), A('mv', 0, -2, 7)], [A('pass', 1, 0)], [A('sh', 0)]] },
+      beats: [[A('pass', 0, 1), A('mv', 0, -2, 7)], [A('pass', 1, 0), A('sh', 0)]] },
     { id: 'back', name: 'Backdoor', group: 'Cuts', note: '2 steps out toward the ball, then cuts behind his defender.',
       setup: [[4, 31], [-19, 22], [18.5, 22], [22.5, 6.5], [-7, 19]], ball: 0,
       beats: [[A('pass', 0, 4), A('mv', 1, -21, 26)], [A('mv', 1, -3, 6.5)], [A('pass', 4, 1)], [A('sh', 1)]] },
@@ -262,7 +262,7 @@
       beats: [[A('pass', 0, 2)], [A('drv', 2, -3, 8)]] },
     { id: 'dnk', name: 'Drive and kick', group: 'Isolation', note: '1 attacks the paint from the top with four shooters spaced.',
       setup: BB.FORM['5 out'], ball: 0,
-      beats: [[A('drv', 0, 2, 11)]] }
+      beats: [[A('drv', 0, 2, 11), { k: 'opt', s: 0, list: [{ k: 'lay' }, { k: 'pass', to: 1 }, { k: 'pass', to: 2 }, { k: 'pass', to: 3 }] }]] }
   ];
   BB.GROUPS = ['Pick and roll', 'Off-ball screens', 'Handoffs', 'Cuts', 'Post', 'Isolation'];
 
