@@ -47,7 +47,7 @@
   // place everyone for the opening possession
   Sim.prototype.begin = function (offTeam) {
     this.offTeam = offTeam; this.defTeam = 1 - offTeam;
-    var o = [[0, 62], [-14, 54], [14, 54], [-18, 46], [18, 46]], d = [[0, 40], [-12, 36], [12, 36], [-14, 28], [14, 28]];
+    var o = [[0, 64], [-17, 56], [17, 56], [-21, 49], [21, 49]], d = [[0, 44], [-16, 40], [16, 40], [-19, 34], [19, 34]];
     for (var s = 0; s < 5; s++) {
       var a = h2w(offTeam, o[s][0], o[s][1]), p = this.op(s); p.x = p.tx = a.x; p.y = p.ty = a.y;
       var b = h2w(offTeam, d[s][0], d[s][1]), q = this.dp(s); q.x = q.tx = b.x; q.y = q.ty = b.y;
@@ -368,7 +368,8 @@
       var dh = w2h(off, drv.x, drv.y);
       beats.push([{ k: 'drv', s: drv.slot, x: (dh.hx >= 0 ? 1 : -1) * 2.5, y: 9 }]); busy = [drv.slot, H.slot];
     } else { // motion
-      var pick = Math.floor(this.rand() * 3); if (pick === o.lastStyle) pick = (pick + 1) % 3; o.lastStyle = pick;
+      var pick = Math.floor(this.rand() * 4); if (pick === o.lastStyle) pick = (pick + 1) % 4; o.lastStyle = pick;
+      if (pick === 3 && (H.r.hnd < 70 || o.drives > 1)) pick = 2;
       var near = others.slice().sort(function (a, b) { return pd(a, H) - pd(b, H); });
       var rec = null; for (var k = 0; k < near.length; k++) if (this.passRisk(H, near[k]) < 0.22 && pd(near[k], hoop(off)) > 14) { rec = near[k]; break; }
       if (pick === 0 && rec) { // pass and cut
@@ -380,6 +381,8 @@
         if (dist(s2.hx, s2.hy, wing.x, wing.y) < 6) wing = { x: (s2.hx >= 0 ? 1 : -1) * 22.5, y: 7 };
         beats.push([{ k: 'scr', s: scr2.slot, x: (s2.hx + wing.x) / 2 + (s2.hx >= 0 ? -1.5 : 1.5), y: (s2.hy + wing.y) / 2 }]);
         beats.push([{ k: 'mv', s: shooter.slot, x: wing.x, y: wing.y }]); busy = [H.slot, shooter.slot, scr2.slot];
+      } else if (pick === 3) { // attack off the dribble, then read
+        beats.push([{ k: 'drv', s: H.slot, x: (hh.hx >= 0 ? 1 : -1) * 3, y: 10 }]); busy = [H.slot];
       } else if (rec) { // swing
         beats.push([{ k: 'pass', s: H.slot, to: rec.slot }]); busy = [H.slot, rec.slot];
       } else { beats.push([{ k: 'drv', s: H.slot, x: hh.hx * 0.3, y: 12 }]); }
@@ -392,7 +395,7 @@
 
   Sim.prototype.decide = function (onlyGood) {
     var o = this.o, H = this.holder(), self = this, force = this.sc <= 4.2;
-    var thr = force ? -9 : (this.sc > 14 ? 1.07 : this.sc > 8 ? 0.99 : 0.88) - Math.min(0.3, 0.09 * o.drives + 0.06 * o.fails);
+    var thr = force ? -9 : (this.sc > 14 ? 1.07 : this.sc > 8 ? 0.99 : 0.88) - Math.min(0.3, 0.09 * o.drives + 0.06 * o.fails + 0.02 * Math.min(4, o.passes));
     var fog = (99 - H.r.oiq) / 99 * 0.3; function nz() { return (self.rand() - 0.5) * 2 * fog; } // low IQ misreads the floor
     var best = { k: 'sh', ev: this.shotInfo(H).ev + nz() };
     this.offs().forEach(function (T) {
@@ -712,7 +715,7 @@
           var dOff = pr === 'sag' ? 3.6 : pr === 'tight' ? 2.2 : pr === 'contest' ? 1.6 : 3.4;
           r = Math.max(1.5, Math.min(dm - dOff, pressing ? 999 : 25));
           var bxp = hp.x + u.x * r, byp = hp.y + u.y * r;
-          var mb = dist(M.x, M.y, bx, by), hf = (d.help === 'help' ? 0.3 : 0.1) * clamp(mb / 22, 0.2, 1) * (pr === 'tight' || pr === 'contest' ? 0.5 : 1);
+          var mb = dist(M.x, M.y, bx, by), hf = (d.help === 'help' ? 0.36 : 0.1) * clamp(mb / 22, 0.2, 1) * (pr === 'tight' || pr === 'contest' ? 0.5 : 1) * clamp(1.75 - M.r.three / 66, 0.3, 1.1);
           if (pressing) hf = 0;
           var ub = unit(hp.x, hp.y, bx, by), hx = hp.x + ub.x * 6, hy = hp.y + ub.y * 6;
           tx = bxp + (hx - bxp) * hf; ty = byp + (hy - byp) * hf;

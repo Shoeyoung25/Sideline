@@ -836,11 +836,12 @@
     var rows = S.mode === 'local' ? [row(1 - S.off), row(S.off)] : [row(me)];
     var cv = h('canvas#court');
     cv.addEventListener('pointerdown', courtTap);
-    add(sc, h('.live', h('#toast', h('.feed', h('span#toastprev'), h('span#toasttxt')), h('span.sc#shotclock')), h('#livehint'), h('#courtwrap', cv, h('#flash')), rows));
+    add(sc, h('.live', h('#toast', h('.feed', h('span#toastprev'), h('span#toasttxt')), h('span.sc#shotclock')), h('#livehint'), h('#courtwrap', cv, h('#feedlist'), h('#flash')), rows));
   }
   function updateLive() {
     var t = $('#toasttxt'); if (!t) return;
     t.textContent = lastLine(); var pv = $('#toastprev'); if (pv) pv.textContent = S.log.length > 1 ? S.log[S.log.length - 2] : '';
+    var fd = $('#feedlist'); if (fd) { fd.className = S.off === 0 ? 'top' : 'bot'; fd.textContent = ''; S.log.slice(-5, -1).forEach(function (l) { add(fd, h('div', { text: l })); }); }
     var fl = $('#flash'); if (fl) { if (S.flash) { fl.textContent = S.flash.txt; fl.className = 'on t' + S.flash.team; } else fl.className = ''; }
     var hint = $('#livehint');
     if (ui.call) { hint.textContent = ui.call.steps[ui.call.got.length].split(':')[1] + '.'; hint.classList.add('on'); } else hint.classList.remove('on');
@@ -919,10 +920,18 @@
       ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fillStyle = COL[team]; ctx.fill();
       ctx.lineWidth = Math.max(1.5, r * 0.16); ctx.strokeStyle = i === holder ? '#f08a24' : '#fff'; if (fl & 1) ctx.strokeStyle = '#18202e'; ctx.stroke();
       ctx.fillStyle = '#fff'; ctx.font = '700 ' + Math.round(r * 1.2) + 'px "Barlow Condensed", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(sl + 1), px, py + r * 0.08);
-      if (zoom && S.lineup[team][sl] != null) {
-        var nm = P(S.lineup[team][sl]).tag; ctx.font = '600 ' + Math.round(10.5 * dpr) + 'px "Barlow", Arial, sans-serif';
-        ctx.lineWidth = 3 * dpr; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.strokeText(nm, px, py + r + 8 * dpr); ctx.fillStyle = '#18202e'; ctx.fillText(nm, px, py + r + 8 * dpr);
-      }
+    }
+    if (zoom) {
+      var placed = [], order = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].sort(function (a, b) { return (a === holder ? -1 : 0) - (b === holder ? -1 : 0); });
+      ctx.font = '600 ' + Math.round(10.5 * dpr) + 'px "Barlow", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      order.forEach(function (i2) {
+        var tm = i2 < 5 ? 0 : 1, id = S.lineup[tm][i2 % 5]; if (id == null) return;
+        var nm = P(id).tag, lx = X(v[5 + i2 * 3] / 10), ly = Y(v[6 + i2 * 3] / 10) + r + 8 * dpr, w2 = ctx.measureText(nm).width / 2 + 3 * dpr, h2 = 7 * dpr, k2, hit = false;
+        for (k2 = 0; k2 < placed.length; k2++) if (Math.abs(placed[k2][0] - lx) < placed[k2][2] + w2 && Math.abs(placed[k2][1] - ly) < placed[k2][3] + h2) { hit = true; break; }
+        for (k2 = 0; k2 < 10 && !hit; k2++) if (k2 !== i2 && Math.abs(X(v[5 + k2 * 3] / 10) - lx) < r + w2 * 0.7 && Math.abs(Y(v[6 + k2 * 3] / 10) - ly) < r + h2 * 0.6) hit = true;
+        if (hit) return; placed.push([lx, ly, w2, h2]);
+        ctx.lineWidth = 3 * dpr; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.strokeText(nm, lx, ly); ctx.fillStyle = '#18202e'; ctx.fillText(nm, lx, ly);
+      });
     }
     var gx = X(bx), gy = Y(by), br = Math.max(4 * dpr, 0.75 * s) * (1 + bz * 0.05);
     if (holder >= 0) { gx += r * 0.8; gy += r * 0.8; }
