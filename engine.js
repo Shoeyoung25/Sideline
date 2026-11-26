@@ -40,6 +40,8 @@
   Sim.prototype.op = function (s) { return this.P[this.offTeam * 5 + s]; };
   Sim.prototype.dp = function (s) { return this.P[this.defTeam * 5 + s]; };
   Sim.prototype.holder = function () { return this.ball.h >= 0 ? this.P[this.ball.h] : null; };
+  // codes: 1 screened, 2 switch, 3 beat his man, 4 cut off, 5 double, 6 open, 7 denied, 8 trap
+  Sim.prototype.tag = function (c, p) { if (!p) return; this.tags = (this.tags || []).filter(function (q) { return q.i !== p.i; }); this.tags.push({ c: c, i: p.i, t: this.t }); if (this.tags.length > 3) this.tags.shift(); };
   Sim.prototype.ev = function (txt, kind) { this.events.push({ t: this.t, txt: txt, kind: kind || 'i' }); };
   Sim.prototype.offs = function () { var a = []; for (var s = 0; s < 5; s++) a.push(this.op(s)); return a; };
   Sim.prototype.defs = function () { var a = []; for (var s = 0; s < 5; s++) a.push(this.dp(s)); return a; };
@@ -297,12 +299,12 @@
     p.stripAt = G && this.rand() < ps ? this.t + 0.35 + this.rand() * 0.45 : 0; p.stripBy = G ? G.i : -1;
     var beaten = this.rand() < this.pBeat(p, G, post);
     p.driving = true; p.post = !!post; p.dribbled = true; p.drvEnd = this.t + 2.6; p.scrUntil = 0;
-    if (beaten) { if (G && pd(G, p) < 7.5) { G.trailUntil = this.t + (post ? 0.3 : 0.7) + this.rand() * 0.25; G.stun = Math.max(G.stun, 0.12); } p.tx = tx; p.ty = ty; p.sp = 0.92; }
+    if (beaten) { if (G && pd(G, p) < 7.5) { G.trailUntil = this.t + (post ? 0.3 : 0.7) + this.rand() * 0.25; G.stun = Math.max(G.stun, 0.12); this.tag(3, p); } p.tx = tx; p.ty = ty; p.sp = 0.92; }
     else {
       // the defender stays in front: the driver gets as deep as the defender lets him, then has to stop
       var minR = (post ? 6.5 : 9) + this.rand() * 2.5, dT = dist(tx, ty, hp.x, hp.y), dP = pd(p, hp), nx = tx, ny = ty;
       if (dT < minR) { if (dP <= minR + 0.5) { nx = p.x; ny = p.y; } else { var f = clamp((dP - minR) / ((dP - dT) || 1), 0, 1); nx = p.x + (tx - p.x) * f; ny = p.y + (ty - p.y) * f; } }
-      p.tx = nx; p.ty = ny; p.sp = 0.62;
+      p.tx = nx; p.ty = ny; p.sp = 0.62; if (G) this.tag(4, G);
     }
     return true;
   };
@@ -445,7 +447,7 @@
     if (!H) return false;
     for (k = 0; k < op.list.length; k++) {
       var q = op.list[k];
-      if (q.k === 'pass') { var T = this.op(q.to); if (T && T !== H && this.passRisk(H, T) < 0.2 && this.catchEV(H, T) >= 0.9) { o.opt = null; o.beats = null; o.gen = false; o.soc = T.slot; this.ev(H.name + ' finds ' + T.name + '.', 'play'); this.pass(H, T); o.think = 0.3; return true; } }
+      if (q.k === 'pass') { var T = this.op(q.to); if (T && T !== H && this.passRisk(H, T) < 0.2 && this.catchEV(H, T) >= 0.9) { o.opt = null; o.beats = null; o.gen = false; o.soc = T.slot; this.tag(6, T); this.ev(H.name + ' finds ' + T.name + ', who is open.', 'play'); this.pass(H, T); o.think = 0.3; return true; } }
       else if (q.k === 'sh') { if (this.shotInfo(H).ev >= 0.88) { o.opt = null; this.shoot(H); return true; } }
       else if (q.k === 'lay' || q.k === 'drv') {
         if (pd(H, hp) < 6.8) { if (this.shotInfo(H).ev >= 0.8) { o.opt = null; this.shoot(H); return true; } }
@@ -469,22 +471,22 @@
     for (k = 0; k < b.length; k++) {
       a = b[k]; p = this.op(a.s); H = this.holder();
       if (a.k === 'pass') {
-        if (H !== p) return false;
+        if (H !== p) { o.why = p.name + ' does not have the ball'; return false; }
         var T = this.op(a.to); if (!T || T === p) return false;
-        if (this.passRisk(H, T) > (o.gen ? 0.22 : 0.2)) return false;
+        if (this.passRisk(H, T) > (o.gen ? 0.22 : 0.3)) { o.why = 'the pass to ' + T.name + ' is covered'; this.tag(7, this.guardOf(T)); return false; }
         if (!this.pass(H, T)) return true; // turnover ends it
       } else if (a.k === 'ho') {
-        if (H !== p) return false;
+        if (H !== p) { o.why = p.name + ' does not have the ball'; return false; }
         var R = this.op(a.to); if (!R || R === p) return false;
         R.tx = p.x; R.ty = p.y; R.sp = 0.9; R.scrUntil = 0; R.scrPending = false; this.setPath(R, a.w || a.c);
         p.tx = p.x; p.ty = p.y; o.ho = { g: p, r: R };
       } else if (a.k === 'drv' || a.k === 'lay') {
         if (a.s === recv) o.defer = a; // he gets the ball in this same step, then goes
-        else if (H !== p) return false;
+        else if (H !== p) { o.why = p.name + ' does not have the ball'; return false; }
         else if (!this.doDrive(a, p)) return true;
       } else if (a.k === 'sh') {
         if (chain) o.endSh = a.s; // shot comes at the end of the step's action
-        else { if (H !== p) return false; if (!o.gen && this.sc > 6 && this.shotInfo(p).ev < 0.52) return false; this.shoot(p); return true; }
+        else { if (H !== p) { o.why = p.name + ' does not have the ball'; return false; } if (!o.gen && this.sc > 6 && this.shotInfo(p).ev < 0.45) { o.why = p.name + ' has no shot'; return false; } this.shoot(p); return true; }
       } else if (a.k === 'opt') {
         o.opt = { list: a.list || [], t: 0 };
       } else if (a.k === 'mv' || a.k === 'scr') {
@@ -509,7 +511,7 @@
         var gd = this.guardOf(hr); if (gd) this.applyScreen(gd, hg, hr, hr, this.d.style === 'zone');
         this.ev(hg.name + ' hands off to ' + hr.name + '.', 'play'); o.bt = this.t - 0.2; H = hr;
         if (!(o.defer && o.defer.s === hr.slot)) { hr.tx = hr.x; hr.ty = hr.y; hr.path = null; return; }
-      } else { if (el > 3.4) { o.ho = null; this.breakPlay(); } return; }
+      } else { if (el > 3.4) { o.ho = null; o.why = 'the handoff never got there'; this.breakPlay(); } return; }
     }
     if (o.defer) { // the new ball handler goes straight into his drive, no pause
       if (H && H.slot === o.defer.s) { var da = o.defer; o.defer = null; if (!this.doDrive(da, H)) return; o.bt = this.t; return; }
@@ -521,7 +523,7 @@
       o.movers.forEach(function (q) { q.driving = false; });
       // end of the step, in order: finish the layup, take the drawn shot, then look at the options
       for (k = 0; k < o.movers.length; k++) { var m = o.movers[k]; if (m.lay) { m.lay = false; if (m === H && pd(m, hp) < 6.8 && (this.sc <= 5 || this.shotInfo(m).ev >= 0.78)) { o.opt = null; this.shoot(m); return; } } } // a layup goes up only if it is there
-      if (o.endSh >= 0 && H && H.slot === o.endSh) { o.endSh = -1; if (o.gen || this.sc <= 6 || this.shotInfo(H).ev >= 0.52) { o.opt = null; this.shoot(H); return; } }
+      if (o.endSh >= 0 && H && H.slot === o.endSh) { o.endSh = -1; if (o.gen || this.sc <= 6 || this.shotInfo(H).ev >= 0.45) { o.opt = null; this.shoot(H); return; } }
       o.endSh = -1;
       if (o.opt) { if (!o.opt.t) o.opt.t = this.t; if (this.tryOptions()) return; if (this.t - o.opt.t < 0.45) return; o.opt = null; }
       o.bi++;
@@ -531,7 +533,7 @@
   };
   Sim.prototype.breakPlay = function () {
     var o = this.o;
-    if (!o.gen) this.ev('The play gets broken up.', 'i');
+    if (!o.gen) this.ev('The play breaks down' + (o.why ? ': ' + o.why + '.' : '.'), 'i'); o.why = '';
     o.beats = null; o.gen = false; o.think = 0.3; o.pendingRead = false; o.ho = null; o.opt = null; o.defer = null; o.endSh = -1;
     this.offs().forEach(function (q) { q.driving = false; q.scrPending = false; });
   };
@@ -666,6 +668,7 @@
     else if (d.dblBy < 0 || this.dp(d.dblBy) === this.guardOf(H)) {
       var g0 = this.guardOf(H), bd = 1e9; d.dblBy = -1;
       for (j = 0; j < 5; j++) { var q0 = this.dp(j); if (q0 === g0 || q0.stun > 0) continue; var dd0 = pd(q0, H); if (dd0 < bd) { bd = dd0; d.dblBy = j; } }
+      if (d.dblBy >= 0) this.tag(5, this.dp(d.dblBy));
     }
     // help on a drive
     var helper = null;
@@ -738,8 +741,8 @@
     if (onBall) o.lastBallScreen = t;
     var rs = !!d.rule && d.rule.a === 'switch' && (d.rule.wo == null || d.rule.wo === U.slot) && (d.rule.w !== 'drive' && d.rule.w !== 'post');
     var cov = onBall ? (rs ? 'switch' : d.cover) : (d.style === 'switch' || rs ? 'switch' : 'fight');
-    if (cov === 'switch' && D2 && D2 !== D) { var a = d.assign[D.slot]; d.assign[D.slot] = d.assign[D2.slot]; d.assign[D2.slot] = a; D.tx = S.x; D.ty = S.y; D2.tx = U.x; D2.ty = U.y; d.contest[D.slot] = t + 2.5; D2.imm[S.slot] = t + 2.8; this.nScr = (this.nScr || 0) + 1; return; }
-    this.nScr = (this.nScr || 0) + 1;
+    if (cov === 'switch' && D2 && D2 !== D) { var a = d.assign[D.slot]; d.assign[D.slot] = d.assign[D2.slot]; d.assign[D2.slot] = a; D.tx = S.x; D.ty = S.y; D2.tx = U.x; D2.ty = U.y; d.contest[D.slot] = t + 2.5; this.tag(2, D2); D2.imm[S.slot] = t + 2.8; this.nScr = (this.nScr || 0) + 1; return; }
+    this.nScr = (this.nScr || 0) + 1; this.tag(cov === 'trap' ? 8 : 1, D);
     if (!onBall) D.stun = Math.max(D.stun, clamp(0.28 + (S.r.str - D.r.str) / 150, 0.12, 0.6));
     else if (cov === 'drop') { D.stun = Math.max(D.stun, 0.3); if (D2) { D2.mode = 'drop'; D2.modeUntil = t + 2.0; } }
     else if (cov === 'hedge') { D.stun = Math.max(D.stun, 0.25); if (D2) { D2.mode = 'hedge'; D2.modeUntil = t + 0.9; } }
@@ -784,7 +787,13 @@
         }
       }
       var dx = gx - p.x, dy = gy - p.y, l0 = Math.sqrt(dx * dx + dy * dy), ox = p.x, oy = p.y;
-      if (l0 > 0.05) { var st = Math.min(l0, v * dt); p.x += dx / l0 * st; p.y += dy / l0 * st; }
+      var lf = dist(p.x, p.y, p.tx, p.ty), want = l0 > 0.05 ? Math.min(v, Math.max(2.5, lf * 7)) : 0, ka = 1 - Math.exp(-dt / (p.team === this.offTeam ? 0.11 : 0.09));
+      var wx = l0 > 0.05 ? dx / l0 * want : 0, wy = l0 > 0.05 ? dy / l0 * want : 0;
+      p.cvx = (p.cvx || 0) + (wx - (p.cvx || 0)) * ka; p.cvy = (p.cvy || 0) + (wy - (p.cvy || 0)) * ka;
+      var stp = Math.sqrt(p.cvx * p.cvx + p.cvy * p.cvy) * dt;
+      if (l0 <= 0.05 || v === 0) { p.cvx *= 0.6; p.cvy *= 0.6; }
+      else if (stp >= l0) { p.x = gx; p.y = gy; }
+      else { p.x += p.cvx * dt; p.y += p.cvy * dt; }
       var l = dist(p.x, p.y, p.tx, p.ty);
       p.x = clamp(p.x, 0.8, 49.2); p.y = clamp(p.y, 0.8, 93.2);
       p.ox = ox; p.oy = oy;
@@ -847,15 +856,15 @@
     var o = this.o, d = this.d, t = this.t, H = this.holder(), off = this.offTeam;
     if (team === off) {
       if (c.k === 'off') { o.plays = []; o.free = true; o.pendingRead = false; if (o.phase === 'reset') o.phase = 'run'; if (o.beats && !o.gen) { o.beats = null; o.think = 0.2; } o.ho = null; o.opt = null; this.ev('Play called off. Freelance.', 'call'); return true; }
-      if (c.k === 'pnr') { if (c.a === c.b || c.a == null || c.b == null) return false; if (o.phase === 'adv') { o.plays = []; } if (o.phase === 'reset') o.phase = 'run'; o.liveQ = { a: c.a, b: c.b }; if (o.beats && !this.ball.fly) { o.beats = null; o.ho = null; o.opt = null; } this.ev('Coach calls a pick and roll: ' + this.op(c.a).name + ' and ' + this.op(c.b).name + '.', 'call'); return true; }
-      if (c.k === 'cut') { var p = this.op(c.s); if (!p || p === H) return false; var hh = w2h(off, p.x, p.y), w = h2w(off, hh.hx > 0 ? 2.5 : -2.5, 7); p.tx = w.x; p.ty = w.y; p.sp = 1; p.scrUntil = 0; p.scrPending = false; if (!o.beats) o.think = Math.max(o.think, 0.55); this.ev(p.name + ' cuts to the rim.', 'call'); return true; }
+      if (c.k === 'pnr') { if (c.a === c.b || c.a == null || c.b == null) return false; if (o.phase === 'adv') { o.plays = []; } if (o.phase === 'reset') o.phase = 'run'; o.liveQ = { a: c.a, b: c.b }; if (o.beats && !this.ball.fly) { o.beats = null; o.ho = null; o.opt = null; } this.tag(13, this.op(c.b)); this.ev('Coach calls a pick and roll: ' + this.op(c.a).name + ' and ' + this.op(c.b).name + '.', 'call'); return true; }
+      if (c.k === 'cut') { var p = this.op(c.s); if (!p || p === H) return false; var hh = w2h(off, p.x, p.y), w = h2w(off, hh.hx > 0 ? 2.5 : -2.5, 7); p.tx = w.x; p.ty = w.y; p.sp = 1; p.scrUntil = 0; p.scrPending = false; if (!o.beats) o.think = Math.max(o.think, 0.55); this.tag(9, p); this.ev(p.name + ' cuts to the rim.', 'call'); return true; }
       return false;
     }
-    if (c.k === 'match') { var k = d.assign.indexOf(c.o); if (k < 0 || c.d == null) return false; d.assign[k] = d.assign[c.d]; d.assign[c.d] = c.o; this.ev(this.dp(c.d).name + ' switches onto ' + this.op(c.o).name + '.', 'call'); return true; }
+    if (c.k === 'match') { var k = d.assign.indexOf(c.o); if (k < 0 || c.d == null) return false; d.assign[k] = d.assign[c.d]; d.assign[c.d] = c.o; this.tag(2, this.dp(c.d)); this.ev(this.dp(c.d).name + ' switches onto ' + this.op(c.o).name + '.', 'call'); return true; }
     if (c.k === 'double') { d.dbl = { o: c.o, until: t + 6 }; d.dblBy = -1; this.ev('Defense sends a double at ' + this.op(c.o).name + '.', 'call'); return true; }
-    if (c.k === 'contest') { d.contest[c.d] = t + 3.5; this.ev(this.dp(c.d).name + ' crowds his man.', 'call'); return true; }
+    if (c.k === 'contest') { d.contest[c.d] = t + 3.5; this.tag(10, this.dp(c.d)); this.ev(this.dp(c.d).name + ' crowds his man.', 'call'); return true; }
     if (c.k === 'move') { d.mv[c.d] = { x: clamp(c.x, 1, 49), y: clamp(c.y, 1, 93), until: t + 3.5 }; return true; }
-    if (c.k === 'watch') { d.watch[c.d] = { o: c.o, until: t + 5 }; this.ev(this.dp(c.d).name + ' shades toward ' + this.op(c.o).name + '.', 'call'); return true; }
+    if (c.k === 'watch') { d.watch[c.d] = { o: c.o, until: t + 5 }; this.tag(11, this.dp(c.d)); this.ev(this.dp(c.d).name + ' shades toward ' + this.op(c.o).name + '.', 'call'); return true; }
     if (c.k === 'steal') {
       var D = this.dp(c.d); if (!D) return false;
       if (H && !this.ball.fly && pd(D, H) < 6) {
@@ -863,7 +872,7 @@
         if (this.rand() < ps) { this.loseBall(D.name + ' goes for the steal and gets it!', D, 'Steal', 0, 0, 0.24); }
         else if (this.rand() < 0.15) { var made = 0; for (var q = 0; q < 2; q++) if (this.rand() < H.r.ft) made++; this.score[off] += made; this.ev(D.name + ' reaches in. Foul. ' + H.name + ' makes ' + made + ' of 2.', made ? 'score' : 'miss'); this.finish('ft', made, true); }
         else { D.stun = 1.0; this.ev(D.name + ' gambles for the steal and misses.', 'call'); }
-      } else { d.gamble[c.d] = t + 2.5; this.ev(D.name + ' jumps the passing lane.', 'call'); }
+      } else { d.gamble[c.d] = t + 2.5; this.tag(12, D); this.ev(D.name + ' jumps the passing lane.', 'call'); }
       return true;
     }
     return false;
@@ -875,6 +884,10 @@
     for (var i = 0; i < 10; i++) { var p = this.P[i]; a.push(Math.round(p.x * 10), Math.round(p.y * 10), (p.scrUntil > t ? 1 : 0) + (p.stun > 0 ? 2 : 0)); }
     for (var j = 0; j < 5; j++) a.push(this.d && this.d.style !== 'zone' ? this.d.assign[j] : -1);
     a.push(this.offTeam);
+    var o = this.o, ph = !o ? 0 : o.phase === 'adv' ? 0 : o.phase === 'reset' ? 1 : (o.beats && !o.gen) ? 2 : 3;
+    a.push(o && (ph === 1 || ph === 2) ? o.pi : -1, o && ph === 2 ? o.bi : 0, ph);
+    var tg = (this.tags || []).filter(function (q) { return t - q.t < 1.4; });
+    for (var k = 0; k < 3; k++) { var q = tg[k]; a.push(q ? q.c : 0, q ? q.i : 0, q ? Math.round((t - q.t) * 10) : 0); }
     return a;
   };
 
