@@ -33,7 +33,7 @@
   var S = fresh(), me = 0, auth = true, sim = null, pend = [null, null];
   var saved = { off: [null, null], def: [null, null] };
   var ui = { localStep: 0, sort: 'ovr', call: null, cool: [0, 0], built: '', fo: null, fd: null, err: '', sentPos: -1, tab: null };
-  var frameT = null, viewCur = null, cam = null, evSeen = 0, endHold = 0, acc = 0, lastTs = 0, lastPub = 0;
+  var frameT = null, viewCur = null, cam = null, evSeen = 0, endHold = 0, startHold = 0, acc = 0, lastTs = 0, lastPub = 0;
   var Net = { room: null, r: null, sample: null, guestPeer: null, seen: { pk: 0, pl: 0, lc: 0 }, lastG: '' };
   var custom = loadCustom();
 
@@ -43,6 +43,7 @@
   // ---------- plan validation (plans can arrive from the other phone) ----------
   function num(v, lo, hi) { v = +v; return isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v * 2) / 2)) : 0; }
   function ctl(c) { return Array.isArray(c) && c.length === 2 && isFinite(+c[0]) && isFinite(+c[1]) ? [num(c[0], -32, 32), num(c[1], -6, 54)] : null; }
+  function wpts(w) { if (!Array.isArray(w)) return null; var out = []; w.slice(0, 6).forEach(function (q) { if (Array.isArray(q) && isFinite(+q[0]) && isFinite(+q[1])) out.push([num(q[0], -24.5, 24.5), num(q[1], 0.5, 46.5)]); }); return out.length ? out : null; }
   function slot(v) { v = +v; return v === 0 || v === 1 || v === 2 || v === 3 || v === 4 ? v : 0; }
   function cleanPlay(p) {
     if (!p || !Array.isArray(p.setup) || p.setup.length !== 5 || !Array.isArray(p.beats)) return null;
@@ -54,8 +55,8 @@
         if (!a) return;
         if (a.k === 'pass') { if (slot(a.s) !== slot(a.to)) nb.push({ k: 'pass', s: slot(a.s), to: slot(a.to) }); }
         else if (a.k === 'sh') nb.push({ k: 'sh', s: slot(a.s) });
-        else if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv') { var n = { k: a.k, s: slot(a.s), x: num(a.x, -24, 24), y: num(a.y, 1, 46) }; if (a.post) n.post = 1; if (ctl(a.c)) n.c = ctl(a.c); nb.push(n); }
-        else if (a.k === 'ho') { if (slot(a.s) !== slot(a.to)) { var hn = { k: 'ho', s: slot(a.s), to: slot(a.to) }; if (ctl(a.c)) hn.c = ctl(a.c); nb.push(hn); } }
+        else if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv') { var n = { k: a.k, s: slot(a.s), x: num(a.x, -24, 24), y: num(a.y, 1, 46) }; if (a.post) n.post = 1; if (wpts(a.w)) n.w = wpts(a.w); else if (ctl(a.c)) n.c = ctl(a.c); nb.push(n); }
+        else if (a.k === 'ho') { if (slot(a.s) !== slot(a.to)) { var hn = { k: 'ho', s: slot(a.s), to: slot(a.to) }; if (wpts(a.w)) hn.w = wpts(a.w); else if (ctl(a.c)) hn.c = ctl(a.c); nb.push(hn); } }
         else if (a.k === 'opt') {
           var list = []; (Array.isArray(a.list) ? a.list : []).slice(0, 4).forEach(function (q) { if (!q) return; if (q.k === 'pass') { if (slot(q.to) !== slot(a.s)) list.push({ k: 'pass', to: slot(q.to) }); } else if (q.k === 'sh' || q.k === 'drv') list.push({ k: q.k }); });
           if (list.length) nb.push({ k: 'opt', s: slot(a.s), list: list });
@@ -115,12 +116,12 @@
       sim.startPossession(S.off, pend[S.off], pend[1 - S.off]);
       var look = { man: 'man to man', 'switch': 'man to man, switching everything', zone: 'a 2-3 zone', press: 'a full court press' }[sim.d.style];
       sim.ev(TEAM[1 - S.off] + ' is in ' + look + '.', 'i');
-      S.phase = 'live'; S.flash = null; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null;
+      S.phase = 'live'; S.flash = { txt: TEAM[S.off] + ' ball', team: S.off, start: 1 }; startHold = 1.1; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null; frameT = sim.frame();
     }
     changed();
   }
   function endPossession() {
-    S.score = sim.score.slice(); S.pos++;
+    S.score = sim.score.slice(); S.pos++; S.box = sim.box.map(function (r) { return r.slice(); });
     if (S.pos >= S.total) {
       if (S.score[0] === S.score[1]) { S.total += 2; S.ot = true; S.log.push('Tied after regulation. One more possession each.'); }
       else { S.phase = 'final'; changed(); return; }
@@ -216,7 +217,7 @@
     var host = null; ch.peers.forEach(function (p) { if (!p.isMe && p.presence && p.presence.h === 1) host = p; });
     if (!host) return;
     var pr = host.presence;
-    if (pr.f && Array.isArray(pr.f) && pr.f.length === 35) frameT = pr.f.slice();
+    if (pr.f && Array.isArray(pr.f) && pr.f.length === 41) frameT = pr.f.slice();
     if (pr.g) {
       var js = JSON.stringify(pr.g);
       if (js !== Net.lastG) {
@@ -294,7 +295,7 @@
   }
   function viewDraft() {
     var myTurn = S.mode === 'local' ? true : S.turn === me, who = S.turn;
-    var list = BB.players.filter(function (p) { return !taken(p.id); }).sort(function (a, b) { return b.r[ui.sort] - a.r[ui.sort] || b.r.ovr - a.r.ovr; });
+    var list = BB.players.filter(function (p) { return !taken(p.id) && (!ui.posf || ui.posf.indexOf(p.pos) >= 0); }).sort(function (a, b) { return b.r[ui.sort] - a.r[ui.sort] || b.r.ovr - a.r.ovr; });
     function roster(t) {
       return h('.roster' + (t ? '.t1' : '') + (S.turn === t ? '.turn' : ''), h('span.tag.t' + t, { text: TEAM[t] + (S.mode !== 'local' && t === me ? ' (you)' : '') }),
         h('ol', S.picks[t].map(function (id) { return h('li', { text: P(id).tag + ' \u00b7 ' + P(id).pos + ' \u00b7 ' + P(id).r.ovr }); })));
@@ -302,6 +303,7 @@
     return h('.pad',
       h('.banner', { text: S.mode === 'local' ? TEAM[who] + ' coach picks. Tap a name to see every rating.' : (myTurn ? 'Your pick. Tap a name to see every rating.' : 'Waiting for ' + TEAM[who] + ' to pick.') }),
       h('.rosters', roster(0), roster(1)),
+      h('.chips', [['', 'All'], ['PG,SG', 'Guards'], ['SF,PF', 'Forwards'], ['C', 'Centers']].map(function (o) { return h('button.chip' + ((ui.posf || '') === o[0] ? '.on' : ''), { text: o[1], onclick: function () { ui.posf = o[0]; render(); } }); })),
       h('div', h('h3', { text: 'Sort by' }), h('.chips.scrollx', { style: 'margin-top:6px' }, SORTS.map(function (s) { return h('button.chip' + (ui.sort === s[0] ? '.on' : ''), { text: s[1], onclick: function () { ui.sort = s[0]; render(); } }); }))),
       h('div', list.map(function (p) {
         var open = ui.open === p.id;
@@ -319,7 +321,7 @@
   function lineupStrip(t) { return h('.lineup', names(t).map(function (p, i) { return h('div', h('b', { text: (i + 1) + ' \u00b7 ' + p.r.ovr }), p.tag); })); }
   function field(label, chips, note) { return h('.field', h('h4', { text: label }), chips, note ? h('p.note', { text: note }) : null); }
   function lastResult() {
-    if (!S.flash) return h('.banner', { text: lastLine() });
+    if (!S.flash || S.flash.start) return h('.banner', { text: lastLine() });
     return h('.banner.res', h('b.t' + S.flash.team, { text: S.flash.txt }), h('span', { text: S.flash.sub || '' }));
   }
 
@@ -406,7 +408,7 @@
     var manOn = f.style === 'man' || f.style === 'switch' || f.style === 'press' || f.style === 'mix';
     function matchRow(j) {
       var sel = h('select', { id: 'match' + j, 'aria-label': 'Who ' + mine[j].tag + ' guards', onchange: function () { var v = +sel.value, k = f.match.indexOf(v); if (k >= 0) f.match[k] = f.match[j]; f.match[j] = v; render(); } },
-        opp.map(function (p, i) { return h('option', { value: i, selected: f.match[j] === i, text: (i + 1) + ' ' + p.tag + ' (' + p.pos + ')' }); }));
+        opp.map(function (p, i) { return h('option', { value: i, selected: f.match[j] === i, text: (i + 1) + ' ' + p.tag + ' \u00b7 ' + p.pos + ' \u00b7 3PT ' + p.r.three + ' \u00b7 Close ' + p.r.ins }); }));
       var o = f.match[j], ps = h('select', { id: 'pp' + j, 'aria-label': 'Pressure on ' + opp[o].tag, onchange: function () { if (ps.value) f.pp[o] = ps.value; else delete f.pp[o]; } },
         [['', 'Team'], ['sag', 'Sag off'], ['tight', 'Tight']].map(function (x) { return h('option', { value: x[0], selected: (f.pp[o] || '') === x[0], text: x[1] }); }));
       return h('.match', h('span', { text: (j + 1) + ' ' + mine[j].tag }), sel, ps);
@@ -466,11 +468,27 @@
     ctx.beginPath(); ctx.moveTo(X(-3), Y(4)); ctx.lineTo(X(3), Y(4)); ctx.stroke();
     ctx.strokeStyle = '#d2382d'; ctx.beginPath(); ctx.arc(X(0), Y(5.25), 0.9 * s, 0, Math.PI * 2); ctx.stroke();
   }
-  // one route line. cx, cy is an optional curve control point (canvas pixels)
-  function arrow(ctx, x0, y0, x1, y1, kind, s, cx, cy) {
-    var dx = x1 - x0, dy = y1 - y0, l = Math.sqrt(dx * dx + dy * dy); if (l < 2) return;
-    var hd = Math.max(5, s * 1.1), pts = [], N = cx == null ? 1 : 18, i;
-    for (i = 0; i <= N; i++) { var u = i / N; if (cx == null) pts.push([x0 + dx * u, y0 + dy * u]); else { var a = (1 - u) * (1 - u), b = 2 * u * (1 - u), c = u * u; pts.push([a * x0 + b * cx + c * x1, a * y0 + b * cy + c * y1]); } }
+  // the points a drawn route passes through, in court feet: explicit waypoints, or an old single-bend curve sampled
+  function wayOf(a, from, to) {
+    if (a.w) return a.w;
+    if (a.c) return [0.25, 0.5, 0.75].map(function (u) { var p = (1 - u) * (1 - u), q = 2 * u * (1 - u), r = u * u; return [p * from[0] + q * a.c[0] + r * to[0], p * from[1] + q * a.c[1] + r * to[1]]; });
+    return null;
+  }
+  function smoothLine(raw, per) { // Catmull-Rom through every point
+    if (raw.length < 3) return raw.slice();
+    var out = [raw[0]], k, j;
+    for (k = 0; k < raw.length - 1; k++) {
+      var p0 = raw[Math.max(0, k - 1)], p1 = raw[k], p2 = raw[k + 1], p3 = raw[Math.min(raw.length - 1, k + 2)];
+      for (j = 1; j <= per; j++) { var u = j / per, u2 = u * u, u3 = u2 * u;
+        out.push([0.5 * (2 * p1[0] + (p2[0] - p0[0]) * u + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * u2 + (3 * p1[0] - p0[0] - 3 * p2[0] + p3[0]) * u3),
+                  0.5 * (2 * p1[1] + (p2[1] - p0[1]) * u + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * u2 + (3 * p1[1] - p0[1] - 3 * p2[1] + p3[1]) * u3)]); }
+    }
+    return out;
+  }
+  // one route line. way is an optional list of points (canvas pixels) the line bends through
+  function arrow(ctx, x0, y0, x1, y1, kind, s, way) {
+    var dx = x1 - x0, dy = y1 - y0, l = Math.sqrt(dx * dx + dy * dy); if (l < 2 && !way) return;
+    var hd = Math.max(5, s * 1.1), i, pts = smoothLine([[x0, y0]].concat(way || [], [[x1, y1]]), 7);
     var pl = pts[pts.length - 2], ex = x1 - pl[0], ey = y1 - pl[1], el = Math.sqrt(ex * ex + ey * ey) || 1, ux = ex / el, uy = ey / el;
     ctx.beginPath(); ctx.setLineDash(kind === 'pass' ? [hd * 0.8, hd * 0.6] : kind === 'sh' ? [2, hd * 0.5] : []);
     if (kind === 'drv') {
@@ -493,7 +511,7 @@
   // opts.beat: -1 draws the whole play from the setup. k >= 0 draws the state at the start of beat k with that beat bold.
   function drawDiagram(cv, play, opts) {
     var ctx = cv.getContext('2d'), W = cv.width, s = W / 50, n = play.beats.length, i;
-    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#dcae74'; ctx.fillRect(0, 0, W, cv.height);
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.lineJoin = 'round'; ctx.fillStyle = '#dcae74'; ctx.fillRect(0, 0, W, cv.height);
     drawHalf(ctx, s);
     function X(x) { return (x + 25) * s; } function Y(y) { return y * s; }
     var cur = opts.beat < 0 ? n : opts.beat;
@@ -503,11 +521,11 @@
       var st = playState(play, i), en = playState(play, i + 1), al = opts.beat < 0 ? 0.9 : (i === cur ? 1 : 0.25);
       ctx.globalAlpha = al; ctx.strokeStyle = ctx.fillStyle = '#18202e'; ctx.lineWidth = Math.max(1.4, s * 0.32);
       play.beats[i].forEach(function (a) {
-        var p0 = st.pos[a.s], cx = a.c ? X(a.c[0]) : null, cy = a.c ? Y(a.c[1]) : null;
+        var p0 = st.pos[a.s]; function px(w) { return w ? w.map(function (q) { return [X(q[0]), Y(q[1])]; }) : null; }
         if (a.k === 'pass') arrow(ctx, X(p0[0]), Y(p0[1]), X(en.pos[a.to][0]), Y(en.pos[a.to][1]), 'pass', s);
         else if (a.k === 'sh') arrow(ctx, X(p0[0]), Y(p0[1]), X(0), Y(5.25), 'sh', s);
         else if (a.k === 'ho') { // receiver runs to the giver, two short bars mark the exchange
-          var r0 = st.pos[a.to]; arrow(ctx, X(r0[0]), Y(r0[1]), X(p0[0]), Y(p0[1]), 'ho', s, cx, cy);
+          var r0 = st.pos[a.to]; arrow(ctx, X(r0[0]), Y(r0[1]), X(p0[0]), Y(p0[1]), 'ho', s, px(wayOf(a, r0, p0)));
           var hx = X(p0[0]), hy = Y(p0[1]), q = Math.max(4, s * 1.5); ctx.save(); ctx.strokeStyle = '#f08a24'; ctx.lineWidth = Math.max(2, s * 0.5); ctx.beginPath(); ctx.moveTo(hx - q * 1.9, hy - q); ctx.lineTo(hx - q * 1.9, hy + q); ctx.moveTo(hx - q * 2.5, hy - q); ctx.lineTo(hx - q * 2.5, hy + q); ctx.stroke(); ctx.restore();
         } else if (a.k === 'opt') {
           a.list.forEach(function (q, n) {
@@ -515,11 +533,11 @@
             if (q.k === 'pass') { tx = X(en.pos[q.to][0]); ty = Y(en.pos[q.to][1]); } else if (q.k === 'sh') { tx = X(0); ty = Y(5.25); } else { tx = X(p0[0] * 0.15); ty = Y(7); }
             var sx = X(p0[0]), sy = Y(p0[1]); arrow(ctx, sx, sy, tx, ty, kind, s); if (W > 300) badge(ctx, sx + (tx - sx) * 0.55, sy + (ty - sy) * 0.55, n + 1, s);
           });
-        } else arrow(ctx, X(p0[0]), Y(p0[1]), X(a.x), Y(a.y), a.k, s, cx, cy);
+        } else arrow(ctx, X(p0[0]), Y(p0[1]), X(a.x), Y(a.y), a.k, s, px(wayOf(a, p0, [a.x, a.y])));
       });
     }
     ctx.globalAlpha = 1;
-    if (opts.drag) { ctx.strokeStyle = ctx.fillStyle = '#1c5fd4'; ctx.lineWidth = Math.max(1.4, s * 0.32); var dc = opts.drag.c; arrow(ctx, X(opts.drag.x0), Y(opts.drag.y0), X(opts.drag.x1), Y(opts.drag.y1), opts.drag.kind, s, dc ? X(dc[0]) : null, dc ? Y(dc[1]) : null); }
+    if (opts.drag) { ctx.strokeStyle = ctx.fillStyle = '#1c5fd4'; ctx.lineWidth = Math.max(1.4, s * 0.32); var dw = opts.drag.w; arrow(ctx, X(opts.drag.x0), Y(opts.drag.y0), X(opts.drag.x1), Y(opts.drag.y1), opts.drag.kind, s, dw ? dw.map(function (q) { return [X(q[0]), Y(q[1])]; }) : null); }
     var ps = playState(play, opts.beat < 0 ? 0 : cur), r = Math.max(5, s * 1.9);
     for (i = 0; i < 5; i++) {
       var x = X(ps.pos[i][0]), y = Y(ps.pos[i][1]);
@@ -562,9 +580,9 @@
     function st() { return playState(ed.p, Math.max(0, ed.step - 1)); }
     function beat() { return ed.p.beats[ed.step - 1]; }
     function redraw() {
-      if (!cv) return;
+      if (!cv || ed.anim) return;
       var o = ed.step === 0 ? { beat: 0, setupOnly: true } : { beat: ed.step - 1 };
-      if (ed.drag && ed.drag.moved && ed.step > 0 && ed.tool !== 'pass' && ed.tool !== 'opt') { var dk = ed.tool === 'ho' ? 'mv' : ed.tool; o.drag = { x0: ed.drag.x0, y0: ed.drag.y0, x1: ed.drag.x, y1: ed.drag.y, kind: dk, c: curveOf(ed.drag) }; }
+      if (ed.drag && ed.drag.moved && ed.step > 0 && ed.tool !== 'pass' && ed.tool !== 'opt') { var dk = ed.tool === 'ho' ? 'mv' : ed.tool; o.drag = { x0: ed.drag.x0, y0: ed.drag.y0, x1: ed.drag.x, y1: ed.drag.y, kind: dk, w: curveOf(ed.drag) }; }
       if (ed.concept && ed.concept.picks.length) o.sel = ed.concept.picks[0];
       drawDiagram(cv, ed.p, o);
     }
@@ -573,13 +591,18 @@
       if (ed.concept) return 'Tap the ' + ed.concept.c.pick[ed.concept.picks.length].toLowerCase() + '.';
       if (ed.step === 0) return 'Setup: drag players to where they start. Tap a player to give him the ball.';
       var hold = st().ball + 1;
-      return { mv: 'Cut: drag any player to where he goes. Bend your drag to curve the route.', scr: 'Screen: drag a player to where he sets it.', drv: 'Drive: drag ' + hold + ' (he has the ball). Curves work too.', pass: 'Pass: tap who ' + hold + ' passes to.', ho: 'Handoff: tap who takes it from ' + hold + ', or drag him along the route he runs.', opt: 'Options: tap players in the order ' + hold + ' should look for them. Tap ' + hold + ' himself for a shot.', sh: '' }[ed.tool];
+      return { mv: 'Cut: drag any player along the route he runs. The line follows your finger.', scr: 'Screen: drag a player to where he sets it.', drv: 'Drive: drag ' + hold + ' along the path he attacks.', pass: 'Pass: tap who ' + hold + ' passes to.', ho: 'Handoff: tap who takes it from ' + hold + ', or drag him along the route he runs.', opt: 'Options: tap players in the order ' + hold + ' should look for them. Tap ' + hold + ' himself for a shot.', sh: '' }[ed.tool];
     }
-    // the drag path as one curve: null when it is close to a straight line
+    // the drag as a few waypoints (Ramer-Douglas-Peucker), or null when it is close to a straight line
     function curveOf(d) {
-      var pts = d.pts || [], x0 = d.x0, y0 = d.y0, x1 = d.x, y1 = d.y, dx = x1 - x0, dy = y1 - y0, l = Math.sqrt(dx * dx + dy * dy) || 1, best = null, bd = 2.2;
-      pts.forEach(function (p) { var off = Math.abs((p[0] - x0) * dy - (p[1] - y0) * dx) / l; if (off > bd) { bd = off; best = p; } });
-      return best ? [Math.round((2 * best[0] - (x0 + x1) / 2) * 2) / 2, Math.round((2 * best[1] - (y0 + y1) / 2) * 2) / 2] : null;
+      var pts = [[d.x0, d.y0]].concat(d.pts || [], [[d.x, d.y]]), eps = 1.3, keep;
+      function rdp(lo, hi, e, out) {
+        var ax = pts[lo][0], ay = pts[lo][1], bx = pts[hi][0], by = pts[hi][1], dx = bx - ax, dy = by - ay, l = Math.sqrt(dx * dx + dy * dy) || 1, best = -1, bd = e;
+        for (var i = lo + 1; i < hi; i++) { var off = l < 0.5 ? Math.hypot(pts[i][0] - ax, pts[i][1] - ay) : Math.abs((pts[i][0] - ax) * dy - (pts[i][1] - ay) * dx) / l; if (off > bd) { bd = off; best = i; } }
+        if (best < 0) return; rdp(lo, best, e, out); out.push(best); rdp(best, hi, e, out);
+      }
+      do { keep = []; rdp(0, pts.length - 1, eps, keep); eps *= 1.4; } while (keep.length > 6);
+      return keep.length ? keep.map(function (i) { return [Math.round(pts[i][0] * 2) / 2, Math.round(pts[i][1] * 2) / 2]; }) : null;
     }
     function isMove(q) { return q.k === 'mv' || q.k === 'scr' || q.k === 'drv'; }
     function setAct(a) {
@@ -605,8 +628,47 @@
       o.list.push(q);
     }
     function addStep() { ed.p.beats.push([]); ed.step = ed.p.beats.length; }
+    function along(line, u) { // point at fraction u of a polyline's length
+      var tot = 0, seg = [], i; for (i = 1; i < line.length; i++) { var l = Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]); seg.push(l); tot += l; }
+      if (tot < 0.01) return line[0]; var want = tot * u; for (i = 0; i < seg.length; i++) { if (want <= seg[i] || i === seg.length - 1) { var f = seg[i] ? Math.min(1, want / seg[i]) : 0; return [line[i][0] + (line[i + 1][0] - line[i][0]) * f, line[i][1] + (line[i + 1][1] - line[i][1]) * f]; } want -= seg[i]; }
+      return line[line.length - 1];
+    }
+    function preview() {
+      if (ed.anim) { cancelAnimationFrame(ed.anim); ed.anim = 0; redraw(); return; }
+      var play = clone(ed.p); play.beats = play.beats.filter(function (b) { return b.length; }); if (!play.beats.length) { ed.msg = 'Add a step first.'; build(); return; }
+      var tl = [], i; // one entry per step: who runs where, and what the ball does
+      for (i = 0; i < play.beats.length; i++) {
+        var st0 = playState(play, i), en = playState(play, i + 1), lines = [], maxL = 0, e = { st: st0, en: en, pass: null, ho: null, shot: false, opt: null };
+        for (var p = 0; p < 5; p++) lines.push([st0.pos[p], en.pos[p]]);
+        play.beats[i].forEach(function (a) {
+          if (a.k === 'mv' || a.k === 'scr' || a.k === 'drv') lines[a.s] = smoothLine([st0.pos[a.s]].concat(wayOf(a, st0.pos[a.s], [a.x, a.y]) || [], [[a.x, a.y]]), 7);
+          else if (a.k === 'ho') { lines[a.to] = smoothLine([st0.pos[a.to]].concat(wayOf(a, st0.pos[a.to], st0.pos[a.s]) || [], [en.pos[a.to]]), 7); e.ho = a; }
+          else if (a.k === 'pass') e.pass = a; else if (a.k === 'sh') e.shot = true; else if (a.k === 'opt') e.opt = a;
+        });
+        lines.forEach(function (ln) { var l = 0; for (var k = 1; k < ln.length; k++) l += Math.hypot(ln[k][0] - ln[k - 1][0], ln[k][1] - ln[k - 1][1]); maxL = Math.max(maxL, l); });
+        e.lines = lines; e.dur = Math.max(0.7, Math.min(2.4, maxL / 13)) + 0.35; tl.push(e);
+      }
+      var t0 = performance.now(), ctx = cv.getContext('2d'), s = cv.width / 50;
+      function frame(now) {
+        var t = (now - t0) / 1000, k = 0; while (k < tl.length && t > tl[k].dur) { t -= tl[k].dur; k++; }
+        if (k >= tl.length) { ed.anim = 0; redraw(); return; }
+        var e = tl[k], u = Math.min(1, t / (e.dur - 0.35)), pos = e.lines.map(function (ln) { return along(ln, u); }), bp;
+        if (e.pass) { var pu = Math.min(1, t / 0.4); bp = [pos[e.pass.s][0] + (pos[e.pass.to][0] - pos[e.pass.s][0]) * pu, pos[e.pass.s][1] + (pos[e.pass.to][1] - pos[e.pass.s][1]) * pu]; }
+        else if (e.ho) bp = pos[u < 0.9 ? e.ho.s : e.ho.to];
+        else if (e.shot) { var su = Math.min(1, t / 0.6), sp = pos[e.st.ball]; bp = [sp[0] + (0 - sp[0]) * su, sp[1] + (5.25 - sp[1]) * su]; }
+        else bp = pos[e.st.ball];
+        ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#dcae74'; ctx.fillRect(0, 0, cv.width, cv.height); drawHalf(ctx, s);
+        var r = Math.max(5, s * 1.9);
+        pos.forEach(function (q, n) { var x = (q[0] + 25) * s, y = q[1] * s; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = Math.max(1, s * 0.25); ctx.strokeStyle = '#18202e'; ctx.stroke(); ctx.fillStyle = '#18202e'; ctx.font = '700 ' + Math.round(r * 1.25) + 'px "Barlow Condensed", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(n + 1), x, y + r * 0.08); });
+        ctx.beginPath(); ctx.arc((bp[0] + 25) * s + r * 0.7, bp[1] * s + r * 0.7, r * 0.5, 0, Math.PI * 2); ctx.fillStyle = '#f08a24'; ctx.fill(); ctx.strokeStyle = '#18202e'; ctx.stroke();
+        ctx.fillStyle = '#18202e'; ctx.font = '600 ' + Math.round(s * 2) + 'px "Barlow", Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText('Step ' + (k + 1) + (e.opt ? ': reads his options' : ''), s * 1.2, cv.height - s * 3.4);
+        ed.anim = requestAnimationFrame(frame);
+      }
+      ed.anim = requestAnimationFrame(frame);
+    }
     function trimEmpty() { ed.p.beats = ed.p.beats.filter(function (b) { return b.length; }); if (ed.step > ed.p.beats.length) ed.step = ed.p.beats.length; }
     function build() {
+      if (ed.anim) { cancelAnimationFrame(ed.anim); ed.anim = 0; }
       ov.textContent = ''; ed.msgShown = ed.msg;
       nameIn = h('input#playname', { type: 'text', maxlength: '28', value: ed.p.name, 'aria-label': 'Play name', oninput: function () { ed.p.name = nameIn.value; } });
       cv = h('canvas#edcanvas');
@@ -639,6 +701,7 @@
           h('.hint', (function () { var e = h('span'); var t = hint(); if (ed.msg || ed.concept) add(e, h('b', { text: t })); else e.textContent = t; return e; })()),
           h('.chips', tools),
           h('.row', h('.grow', csel),
+            h('button.btn.small', { text: 'Preview', onclick: preview }),
             h('button.btn.small', { text: 'Undo', onclick: function () { ed.msg = ''; ed.concept = null; var b = beat(); if (b && b.length) b.pop(); else if (ed.step > 0) { ed.p.beats.splice(ed.step - 1, 1); ed.step = Math.max(0, ed.step - 1); } build(); } }),
             h('button.btn.small', { text: 'Clear', onclick: function () { ed.p.beats = []; ed.step = 0; ed.msg = ''; ed.concept = null; build(); } })),
           (function () {
@@ -661,6 +724,7 @@
     function pt(e) { var r = cv.getBoundingClientRect(); return { x: Math.max(-24, Math.min(24, (e.clientX - r.left) / r.width * 50 - 25)), y: Math.max(1, Math.min(46, (e.clientY - r.top) / r.height * 47)) }; }
     function near(p) { var pos = st().pos, best = -1, bd = 4.2; pos.forEach(function (q, i) { var d = Math.hypot(q[0] - p.x, q[1] - p.y); if (d < bd) { bd = d; best = i; } }); return best; }
     function down(e) {
+      if (ed.anim) { cancelAnimationFrame(ed.anim); ed.anim = 0; }
       var p = pt(e), s = near(p); ed.msg = '';
       if (s < 0) return;
       try { cv.setPointerCapture(e.pointerId); } catch (x) { /* fine */ }
@@ -698,12 +762,12 @@
       }
       if (ed.tool === 'ho') {
         if (s === hold) ed.msg = (hold + 1) + ' has the ball. Tap or drag the player who takes it from him.';
-        else { var hp = st().pos[hold], act = { k: 'ho', s: hold, to: s }; if (d.moved) { d.x = hp[0]; d.y = hp[1]; var hc = curveOf(d); if (hc) act.c = hc; } setAct(act); ed.msg = (s + 1) + ' takes the handoff from ' + (hold + 1) + '. Draw what he does with it in the next step.'; }
+        else { var hp = st().pos[hold], act = { k: 'ho', s: hold, to: s }; if (d.moved) { d.x = hp[0]; d.y = hp[1]; var hc = curveOf(d); if (hc) act.w = hc; } setAct(act); ed.msg = (s + 1) + ' takes the handoff from ' + (hold + 1) + '. Draw what he does with it in the next step.'; }
         build(); return;
       }
       if (!d.moved) { build(); return; }
       var x = Math.round(d.x * 2) / 2, y = Math.round(d.y * 2) / 2, cv2 = curveOf(d);
-      function mk(k) { var a = { k: k, s: s, x: x, y: y }; if (cv2) a.c = cv2; return a; }
+      function mk(k) { var a = { k: k, s: s, x: x, y: y }; if (cv2) a.w = cv2; return a; }
       if (gives && (s === hold || b.some(function (a) { return a.k === 'ho' && a.to === s; }))) ed.msg = 'He is part of the handoff in this step. Move him in the next step.';
       else if (ed.tool === 'drv') {
         if (s !== hold) ed.msg = 'Only ' + (hold + 1) + ' can drive, he has the ball at the start of this step.';
@@ -796,7 +860,7 @@
     var f = frameT, i;
     if (!viewCur || viewCur.length !== f.length) viewCur = f.slice();
     var k = auth ? 1 : 0.3;
-    for (i = 0; i < f.length; i++) { var isPos = (i >= 1 && i <= 3) || (i >= 5 && (i - 5) % 3 < 2); viewCur[i] = isPos ? viewCur[i] + (f[i] - viewCur[i]) * k : f[i]; }
+    for (i = 0; i < f.length; i++) { var isPos = (i >= 1 && i <= 3) || (i >= 5 && i < 35 && (i - 5) % 3 < 2); viewCur[i] = isPos ? viewCur[i] + (f[i] - viewCur[i]) * k : f[i]; }
     var v = viewCur, bx = v[1] / 10, by = v[2] / 10, bz = v[3] / 10, holder = v[4];
     // camera: whole court while the ball comes up, then the attacking half, using all the height the screen has
     var hp = E.hoop(S.off).y, span = Math.min(98, Math.max(52, H / (W / 54))), tgt = Math.abs(by - hp) < 50 ? (hp > 47 ? [96 - span, 96] : [-2, -2 + span]) : [-2, 96];
@@ -809,6 +873,12 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     function X(x) { return cx + (x - 25) * s; } function Y(y) { return cy + (y - my) * s; }
     var r = Math.max(9 * dpr, 1.75 * s), zoom = s / dpr > 5.2, pick = ui.call ? ui.call.steps[ui.call.got.length].split(':')[0] : null;
+    var defT = 1 - S.off, showM = v.length >= 40 && v[35] >= 0 && (S.mode === 'local' ? !!ui.call && ui.call.team === defT : me === defT);
+    if (showM) { // who guards whom
+      ctx.save(); ctx.strokeStyle = 'rgba(24,32,46,.38)'; ctx.lineWidth = Math.max(1.5, dpr * 1.5); ctx.setLineDash([4 * dpr, 4 * dpr]);
+      for (i = 0; i < 5; i++) { var di = defT * 5 + i, oi = S.off * 5 + v[35 + i]; ctx.beginPath(); ctx.moveTo(X(v[5 + di * 3] / 10), Y(v[6 + di * 3] / 10)); ctx.lineTo(X(v[5 + oi * 3] / 10), Y(v[6 + oi * 3] / 10)); ctx.stroke(); }
+      ctx.restore();
+    }
     for (i = 0; i < 10; i++) {
       var team = i < 5 ? 0 : 1, sl = i % 5, px = X(v[5 + i * 3] / 10), py = Y(v[6 + i * 3] / 10), fl = v[7 + i * 3];
       if (pick && ((pick === 'own' && team === ui.call.team) || (pick === 'opp' && team !== ui.call.team))) { ctx.beginPath(); ctx.arc(px, py, r * 1.45, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,213,74,.75)'; ctx.fill(); }
@@ -833,6 +903,7 @@
     requestAnimationFrame(loop);
     var dt = Math.min(0.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
     if (S.phase !== 'live') return;
+    if (auth && sim && startHold > 0) { startHold -= dt; if (startHold <= 0) { S.flash = null; if (S.mode === 'host') pubState(); updateLive(); } if (S.mode === 'host' && Net.r && ts - lastPub > 200) { lastPub = ts; Net.r.presence({ f: frameT }).catch(noop); } drawLive(); return; }
     if (auth && sim) {
       acc += dt * SPEED; var n = 0;
       while (acc >= 1 / 60 && n++ < 6) { sim.step(1 / 60); acc -= 1 / 60; }
@@ -844,10 +915,10 @@
       if (fresh2) { if (S.mode === 'host') pubState(); renderHud(); updateLive(); }
       if (S.mode === 'host' && Net.r && ts - lastPub > 70) { lastPub = ts; Net.r.presence({ f: frameT }).catch(noop); }
       if (sim.done && !S.flash) {
-        var dn = sim.done, tx = dn.type === 'make' ? '+' + dn.pts + ' ' + TEAM[S.off] : dn.type === 'ft' ? (dn.pts ? '+' + dn.pts + ' ' + TEAM[S.off] : 'No points') : dn.type === 'to' ? 'Turnover' : 'Stop';
+        var dn = sim.done, tx = dn.type === 'make' ? '+' + dn.pts + ' ' + TEAM[S.off] : dn.type === 'ft' ? (dn.pts ? '+' + dn.pts + ' ' + TEAM[S.off] : 'No points') : dn.type === 'to' ? (dn.label || 'Turnover') : 'Stop';
         S.flash = { txt: tx, team: dn.pts ? S.off : 1 - S.off, sub: lastLine() }; if (S.mode === 'host') pubState(); renderHud(); updateLive();
       }
-      if (sim.done) { endHold += dt; if (endHold > 2.0) { endHold = 0; endPossession(); return; } }
+      if (sim.done) { endHold += dt; if (endHold > 2.3) { endHold = 0; endPossession(); return; } }
     }
     drawLive();
   }
@@ -855,11 +926,14 @@
   // ---------- final ----------
   function viewFinal() {
     var w = S.score[0] > S.score[1] ? 0 : 1, canRestart = S.mode !== 'guest';
-    return h('.center',
+    return h('.pad',
       h('span.tag.t' + w, { text: TEAM[w] + ' wins' }),
       h('.big', { text: S.score[0] + ' - ' + S.score[1] }),
       h('p.muted', { text: S.ot ? 'Decided in overtime.' : 'Final after 10 possessions.' }),
-      h('.loglist', S.log.slice(-4).map(function (l) { return h('div', { text: l }); })),
+      S.box ? h('.card', [0, 1].map(function (t) {
+        return h('table.box', h('thead', h('tr', h('th', h('span.tag.t' + t, { text: TEAM[t] })), ['PTS', 'REB', 'AST', 'FG', 'STL', 'TO'].map(function (x) { return h('th', { text: x }); }))),
+          h('tbody', S.lineup[t].map(function (id, i) { var b = S.box[t * 5 + i] || [0, 0, 0, 0, 0, 0, 0]; return h('tr', h('td', { text: P(id).tag }), [b[0], b[1], b[2], b[3] + '/' + b[4], b[5], b[6]].map(function (x) { return h('td', { text: x }); })); })));
+      })) : null,
       canRestart ? h('button.btn.primary', { text: 'Rematch, same teams', onclick: function () { saved = { off: [null, null], def: [null, null] }; startMatch(); changed(); } }) : h('p.note', { text: 'The host can start a rematch or a new draft.' }),
       canRestart ? h('button.btn', { text: 'New draft', onclick: startDraft }) : null);
   }
