@@ -190,7 +190,13 @@
     }
     changed();
   }
-  function playSig(p) { return p.beats.map(function (b) { return b.map(function (a) { return a.k + a.s + (a.to == null ? '' : a.to); }).sort().join(','); }).join('|'); }
+  function flipPlay(p) { // the same play run to the other side of the floor
+    var q = clone(p); q.setup = q.setup.map(function (z) { return [-z[0], z[1]]; });
+    q.beats.forEach(function (b) { b.forEach(function (a) { if (typeof a.x === 'number') a.x = -a.x; if (a.w) a.w = a.w.map(function (z) { return [-z[0], z[1]]; }); if (a.c) a.c = [-a.c[0], a.c[1]]; }); });
+    q.name = /\(flipped\)$/.test(q.name) ? q.name.replace(/ \(flipped\)$/, '') : q.name + ' (flipped)'; return q;
+  }
+  function playSide(p) { var sx = 0; p.beats.forEach(function (b) { b.forEach(function (a) { if (typeof a.x === 'number') sx += a.x; }); }); return sx < -3 ? 'L' : sx > 3 ? 'R' : 'M'; }
+  function playSig(p) { return playSide(p) + ':' + p.beats.map(function (b) { return b.map(function (a) { return a.k + a.s + (a.to == null ? '' : a.to); }).sort().join(','); }).join('|'); }
   function styleName(list, id) { var x = list.filter(function (q) { return q.id === id; })[0]; return x ? x.name : id; }
   function descOff(p) { var pl = p.plays.filter(Boolean).map(function (q) { return q.name; }); return (pl.length ? pl.join(', then ') + ', then ' : '') + styleName(BB.OFF_STYLES, p.style).toLowerCase() + (p.focus != null ? ', through ' + names(S.off)[p.focus].tag : ''); }
   function descDef(p) { var z = p.style === 'zone'; return styleName(BB.DEF_STYLES, p.style) + (z ? '' : ', ' + (p.style === 'switch' ? 'switch' : p.cover) + ' on screens') + ', ' + { sag: 'sagging off', normal: 'normal pressure', tight: 'tight pressure' }[p.press] + ', ' + (p.help === 'help' ? 'helping on drives' : 'staying home') + (p.dbl != null ? ', doubling ' + names(S.off)[p.dbl].tag : '') + (p.leak && p.leak.length ? ', ' + p.leak.length + ' leaking out' : '') + (p.rules && p.rules.length ? '. Emphasis: ' + p.rules.map(function (r) { return ruleText(r, names(S.off)); }).join(' ') : ''); }
@@ -734,9 +740,10 @@
       if (p) drawDiagram(cvb, p, { beat: -1 }); else drawDiagram(cvb, { setup: BB.FORM['5 out'], ball: 0, beats: [] }, { beat: -1, empty: true });
       function use(np) { f.plays[0] = np; render(); }
       return h('.card.board', h('h3', { text: p ? 'Your play: ' + p.name : 'Draw up a play' }), cvb,
-        p ? h('p.note' + (seen ? '.warn' : '.fresh'), { text: seen ? 'They have seen this one. They may be sitting on it: change who cuts, screens or gets the ball to make it a new look.' : 'A new look. The first time you run it the defense is a step behind.' }) : h('p.note', { text: 'No play: the team freelances. A drawn play gets better shots, and a new one catches the defense off guard.' }),
+        p ? h('p.note' + (seen ? '.warn' : '.fresh'), { text: seen ? 'They have seen this one. They may be sitting on it: tap Flip to run it to the other side, or change who cuts, screens or gets the ball.' : 'A new look. The first time you run it the defense is a step behind.' }) : h('p.note', { text: 'No play: the team freelances. A drawn play gets better shots, and a new one catches the defense off guard.' }),
         h('.row', h('button.btn.primary.grow', { text: p ? 'Edit play' : 'Draw a play', onclick: function () { openEditor(p, t, use); } }),
           h('button.btn', { text: 'Playbook', onclick: function () { openPlaybook(use); } }),
+          p ? h('button.btn', { text: 'Flip', title: 'Run it to the other side', onclick: function () { var fl = cleanPlay(flipPlay(p)); if (fl) use(fl); } }) : null,
           p ? h('button.btn', { text: 'Clear', onclick: function () { f.plays[0] = null; render(); } }) : null),
         custom.length ? h('div', h('h4', { text: 'Your drawn plays' }), h('.strip', custom.slice().reverse().slice(0, 8).map(function (q) {
           var c2 = h('canvas', { width: 104, height: 98 }); drawDiagram(c2, q, { beat: -1 }); var sn = S.seenP && S.seenP[t] && S.seenP[t][playSig(q)];
