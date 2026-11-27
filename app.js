@@ -505,7 +505,7 @@
       h('div', list.map(function (p) {
         var open = ui.open === p.id;
         return h('.prow',
-          h('button.pname', { 'aria-expanded': open ? 'true' : 'false', onclick: function () { ui.open = open ? null : p.id; render(); } }, h('.nm', { text: p.name }), h('.sub', { text: p.team + ' \u00b7 ' + p.pos + ' \u00b7 ' + p.s.pts.toFixed(1) + ' pts \u00b7 ' + p.s.trb.toFixed(1) + ' reb \u00b7 ' + p.s.ast.toFixed(1) + ' ast' })),
+          h('button.pname', { 'aria-expanded': open ? 'true' : 'false', onclick: function () { ui.open = open ? null : p.id; render(); } }, h('.nm', { text: p.name }), h('.sub', { text: p.team + ' \u00b7 ' + p.pos + ' \u00b7 ' + ftin(p.r.hgt) + ' ' + p.r.wgt + ' lb \u00b7 ' + p.s.pts.toFixed(1) + ' pts \u00b7 ' + p.s.trb.toFixed(1) + ' reb \u00b7 ' + p.s.ast.toFixed(1) + ' ast' })),
           h('.row', h('span.ovr', { text: p.r.ovr }), h('button.btn.small.' + (who ? 'red' : 'blue'), { text: 'Draft', disabled: !myTurn, onclick: function () { sendPick(S.mode === 'local' ? who : me, p.id); } })),
           open ? attrCard(p) : h('.rt', PILLS.map(function (r) { var v = p.r[r[0]]; return h('span' + (v >= 85 ? '.hot' : v < 60 ? '.cold' : ''), { text: r[1] + ' ' + v }); })));
       })));
@@ -652,6 +652,7 @@
       h('p.note', { text: ui.spotMsg || { steal: 'Steal spot: tap where you expect a pass to be caught. A defender is waiting on any pass thrown there.', wall: 'Fight for spot: tap a place you refuse to give up. Cutters get no head start going there and shots from it are tougher.', trap: 'Trap zone: tap an area. Whenever the ball is there a second defender comes, and someone else is open.' }[ui.spotTool] }),
       h('p.note', { text: (under ? 'Faint lines: ' + under.p.name + ', a play they have run. ' : '') + (f.spots.length ? f.spots.length + ' of 4 markers placed. Tap a marker to remove it. Each one thins your cover everywhere else a little.' : 'Up to 4 markers. Each one thins your cover everywhere else a little, so mark only what you expect.') }));
   }
+  function ftin(inches) { return Math.floor(inches / 12) + '\u2032' + (inches % 12) + '\u2033'; }
   function advToggle() { return h('button.btn.small.advbtn', { text: ui.adv ? 'Hide fine tuning' : 'Fine tuning: screens, help, doubles, rebounding', onclick: function () { ui.adv = !ui.adv; render(); } }); }
   function scoutCard(t, onOff) { // what the other bench showed the last time it was in this spot
     var sc = S.scout && S.scout[1 - t], mine = S.scout && S.scout[t], txt = sc && (onOff ? sc.def : sc.off), own = mine && (onOff ? mine.off : mine.def);
@@ -791,8 +792,9 @@
     var f = ui.fd, st = BB.DEF_STYLES.filter(function (s) { return s.id === f.style; })[0], mine = names(t), opp = names(1 - t);
     var manOn = f.style === 'man' || f.style === 'switch' || f.style === 'mix';
     function edge(d, o) { // what a coach would notice about this pairing
-      var out = [], ds = d.r.size - o.r.size, dv = d.r.spd - o.r.spd;
-      if (ds <= -2) out.push(['bad', 'Gives up size']); else if (ds >= 2) out.push(['ok', 'Bigger']);
+      var out = [], dh = d.r.hgt - o.r.hgt, dv = d.r.spd - o.r.spd, dst = d.r.str - o.r.str;
+      if (dh <= -3) out.push(['bad', 'Gives up ' + (-dh) + ' in']); else if (dh >= 3) out.push(['ok', dh + ' in taller']);
+      if (dst <= -12) out.push(['bad', 'Weaker']); else if (dst >= 12) out.push(['ok', 'Stronger']);
       if (dv <= -8) out.push(['bad', 'Slower']); else if (dv >= 8) out.push(['ok', 'Quicker']);
       if (o.r.three >= 88 && d.r.pd < 75) out.push(['bad', 'Shooter on a weak defender']);
       if (o.r.ins >= 90 && d.r.rim < 70 && d.r.pd < 78) out.push(['bad', 'Soft inside']);
@@ -804,9 +806,9 @@
           if (ui.swap == null || ui.swap === j) ui.swap = on ? null : j; else { var k = ui.swap, tmp = f.match[k]; f.match[k] = f.match[j]; f.match[j] = tmp; ui.swap = null; }
           render();
         } },
-        h('.who', h('b.t' + t, { text: (j + 1) + ' ' + d.tag }), h('span', { text: 'DEF ' + d.r.pd + ' / ' + d.r.rim })),
+        h('.who', h('b.t' + t, { text: (j + 1) + ' ' + d.tag }), h('span', { text: ftin(d.r.hgt) + ' \u00b7 DEF ' + d.r.pd + ' / ' + d.r.rim })),
         h('.arr', { text: '\u2192' }),
-        h('.who', h('b.t' + (1 - t), { text: (o + 1) + ' ' + op.tag }), h('span', { text: op.pos + ' \u00b7 3PT ' + op.r.three + ' \u00b7 Close ' + op.r.ins }),
+        h('.who', h('b.t' + (1 - t), { text: (o + 1) + ' ' + op.tag }), h('span', { text: op.pos + ' ' + ftin(op.r.hgt) + ' \u00b7 3PT ' + op.r.three + ' \u00b7 Close ' + op.r.ins }),
           h('.edges', edge(d, op).map(function (x) { return h('i.' + x[0], { text: x[1] }); }))),
         h('button.chip.pp' + (pv ? '.on' : ''), { id: 'pp' + j, text: pv === 'sag' ? 'Sag off' : pv === 'tight' ? 'Tight' : pv === 'deny' ? 'Deny ball' : 'Team', 'aria-label': 'Pressure on ' + op.tag, onclick: function (ev) { ev.stopPropagation(); var nx = pv === '' ? 'sag' : pv === 'sag' ? 'tight' : pv === 'tight' ? 'deny' : ''; if (nx) f.pp[o] = nx; else delete f.pp[o]; render(); } }));
     }
@@ -1360,7 +1362,7 @@
     updateLive();
   }
 
-  var TAGS = { 1: 'Screened', 2: 'Switch', 3: 'Beat his man', 4: 'Cut off', 5: 'Double', 6: 'Open', 7: 'Denied', 8: 'Trap', 9: 'Cutting', 10: 'Crowding', 11: 'Shading', 12: 'Gambling', 13: 'Screen', 14: 'Heating up' };
+  var TAGS = { 1: 'Screened', 2: 'Switch', 3: 'Beat his man', 4: 'Cut off', 5: 'Double', 6: 'Open', 7: 'Denied', 8: 'Trap', 9: 'Cutting', 10: 'Crowding', 11: 'Shading', 12: 'Gambling', 13: 'Screen', 14: 'Heating up', 15: 'Mismatch' };
   function livePlays() { // the plays this phone is allowed to see drawn on the court
     if (auth && S.ai != null && S.off === S.ai) return null; // the computer's play stays hidden, like a real opponent's
     if (auth) return pend[S.off] ? pend[S.off].plays.filter(Boolean) : [];
@@ -1399,7 +1401,7 @@
     for (var k = 44; k < 53; k += 3) {
       var c = v[k], txt = TAGS[c]; if (!txt) continue;
       var i = v[k + 1], age = v[k + 2] / 10, al = Math.max(0, Math.min(1, (1.4 - age) / 0.4)), px = X(v[5 + i * 3] / 10), py = Y(v[6 + i * 3] / 10) - r - 11 * dpr - age * 5 * dpr, w = ctx.measureText(txt).width / 2 + 6 * dpr, hh = 8.5 * dpr;
-      var good = c === 1 || c === 3 || c === 6 || c === 9 || c === 13 || c === 14;
+      var good = c === 1 || c === 3 || c === 6 || c === 9 || c === 13 || c === 14 || c === 15;
       ctx.globalAlpha = al; ctx.fillStyle = good ? '#1f9d55' : '#18202e'; ctx.beginPath();
       if (ctx.roundRect) ctx.roundRect(px - w, py - hh, w * 2, hh * 2, hh); else ctx.rect(px - w, py - hh, w * 2, hh * 2);
       ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(txt.toUpperCase(), px, py + dpr * 0.5); ctx.globalAlpha = 1;

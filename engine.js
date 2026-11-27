@@ -132,10 +132,12 @@
       if (dd < d1) { d2 = d1; n2 = n1; d1 = dd; n1 = q; } else if (dd < d2) { d2 = dd; n2 = q; }
     }
     var pm, pts = isThree ? 3 : 2, pf = 0;
-    function rimC(q, dd2) { return dd2 >= 5 ? 0 : (1 - Math.max(0, dd2 - 1.8) / 3.2) * clamp(0.10 + ((q.r.rim * 0.65 + q.r.blk * 0.35) - 50) / 49 * 0.17 + (q.r.size - r.size) * 0.022, 0.03, 0.34); }
+    function rimC(q, dd2) { return dd2 >= 5 ? 0 : (1 - Math.max(0, dd2 - 1.8) / 3.2) * clamp(0.10 + ((q.r.rim * 0.65 + q.r.blk * 0.35) - 50) / 49 * 0.17 + (q.r.size - r.size) * 0.026 + ((q.r.vert || 75) - 75) * 0.0008, 0.02, 0.36); }
     if (type === 'rim') {
       pm = 0.575 + (r.ins - 75) * 0.006;
       pm -= rimC(n1, d1) + (this.d && this.d.style === 'zone' ? 0.9 : this.d && this.d.help === 'help' ? 0.85 : 0.5) * rimC(n2, d2);
+      pm += ((r.vert || 75) - 75) * 0.0012; // leapers finish
+      if (d1 < 3.2 && n1) pm += clamp((r.str - n1.r.str) * 0.0013, -0.04, 0.045); // a stronger finisher goes through the contact
       if (d1 >= 6) pm += 0.14;
       if (d1 < 3.6) pf = 0.11 + Math.min(0.1, r.fta * 0.011);
     } else {
@@ -145,7 +147,7 @@
       else base = 0.40 + (r.mid - 76) * 0.004;
       var c = 0;
       if (d1 >= 6) c = -0.05;
-      else { c = (1 - Math.max(0, d1 - 1.8) / 4.2) * clamp(0.17 + (n1.r.pd - 60) / 40 * 0.07 + (n1.r.size - r.size) * 0.015, 0.07, 0.3); }
+      else { c = (1 - Math.max(0, d1 - 1.8) / 4.2) * clamp(0.17 + (n1.r.pd - 60) / 40 * 0.07 + (n1.r.size - r.size) * 0.021, 0.05, 0.3); }
       pm = base - c;
       if (p.dribbled) pm -= 0.035;
       if (type === 'short' && d1 < 3) pf = 0.07 + Math.min(0.06, r.fta * 0.006);
@@ -179,7 +181,8 @@
     (this.shots = this.shots || []).push([s.type, make ? 1 : 0, Math.round(s.d1)]);
     var blocked = !make && s.type === 'rim' && s.d1 < 3 && this.rand() < 0.14 + s.n1.r.blk / 400;
     this.ball.h = -1;
-    this.ball.fly = { type: 'shot', fx: p.x, fy: p.y, tx: hp.x, ty: hp.y, t0: this.t, dur: 0.5 + s.dist / 42, make: make, pts: s.pts, shooter: p.i, label: label, blocked: blocked ? s.n1.name : null, open: s.d1 >= 6 };
+    this.ball.fly = { type: 'shot', fx: p.x, fy: p.y, tx: hp.x, ty: hp.y, t0: this.t, dur: 0.5 + s.dist / 42, make: make, pts: s.pts, shooter: p.i, label: label, blocked: blocked ? s.n1.name : null, open: s.d1 >= 6, over: s.n1 && s.d1 < 4.5 && p.r.hgt - s.n1.r.hgt >= 4 ? s.n1.name : s.n1 && s.d1 < 3.2 && s.type === 'rim' && p.r.str - s.n1.r.str >= 14 ? '>' + s.n1.name : '' };
+    if (this.ball.fly.over) this.tag(15, p);
     this.crashAndBox(p);
   };
 
@@ -213,7 +216,7 @@
       var dd = dist(p.x, p.y, bx, by), prox = 1 / (1 + Math.pow(dd / 5.5, 2));
       var tf = p.team === self.offTeam ? (o.crash[p.slot] ? 0.6 + 0.03 * (o.nCrash - 3) : 0.2) : (1.3 - 0.1 * d.nLeak) * (d.style === 'zone' ? 0.88 : 1);
       if (p.team !== self.offTeam && d.leak[p.slot]) tf = 0.02;
-      var v = Math.pow((p.r.reb * 0.85 + p.r.str * 0.15) / 70, 2.4) * prox * tf * (p.stun > 0 ? 0.6 : 1) + 0.0005;
+      var v = Math.pow((p.r.reb * 0.85 + p.r.str * 0.15) / 70, 2.4) * (1 + ((p.r.hgt || 79) - 79) * 0.015 + ((p.r.vert || 75) - 75) * 0.004) * prox * tf * (p.stun > 0 ? 0.6 : 1) + 0.0005;
       w.push(v); tot += v;
     });
     var roll = this.rand() * tot, pick = 0;
@@ -299,7 +302,7 @@
     var d = this.d, p;
     if (post) p = 0.42 + ((H.r.ins + H.r.str * 0.5 + H.r.size * 4) - (G.r.rim + G.r.str * 0.5 + G.r.size * 4)) / 140 - (d.style === 'zone' ? 0.16 : 0);
     else {
-      p = 0.36 + clamp(((H.r.hnd * 0.6 + H.r.spd * 0.4) - (G.r.pd * 0.65 + G.r.spd * 0.35)) / 110, -0.17, 0.17);
+      p = 0.36 + clamp(((H.r.hnd * 0.6 + H.r.spd * 0.4) - (G.r.pd * 0.65 + G.r.spd * 0.35)) / 110, -0.17, 0.17) + clamp((H.r.str - G.r.str) / 500, -0.035, 0.04);
       var pr = d.ppRule[H.slot] || d.pp[H.slot] || d.press;
       if (d.contest[G.slot] > this.t) p += 0.16; else if (pr === 'tight') p += 0.18; else if (pr === 'sag') p -= 0.2;
       var hp = hoop(this.offTeam), u = unit(G.x, G.y, H.x, H.y);
@@ -327,7 +330,7 @@
     p.stripAt = G && this.rand() < ps ? this.t + 0.35 + this.rand() * 0.45 : 0; p.stripBy = G ? G.i : -1;
     var beaten = this.rand() < this.pBeat(p, G, post);
     p.driving = true; p.post = !!post; p.dribbled = true; p.drvEnd = this.t + 2.6; p.scrUntil = 0;
-    if (beaten) { if (G && pd(G, p) < 7.5) { G.trailUntil = this.t + (post ? 0.3 : 0.7) + this.rand() * 0.25; G.stun = Math.max(G.stun, 0.12); this.tag(3, p); } p.tx = tx; p.ty = ty; p.sp = 0.92; }
+    if (beaten) { if (G && pd(G, p) < 7.5) { G.trailUntil = this.t + (post ? 0.3 : 0.7) + this.rand() * 0.25 + (post ? 0 : clamp((p.r.spd - G.r.spd) / 40, 0, 0.5)); G.stun = Math.max(G.stun, 0.12); this.tag(3, p); } p.tx = tx; p.ty = ty; p.sp = 0.92; }
     else {
       // the defender stays in front: the driver gets as deep as the defender lets him, then has to stop
       var minR = (post ? 6.5 : 9) + this.rand() * 2.5, dT = dist(tx, ty, hp.x, hp.y), dP = pd(p, hp), nx = tx, ny = ty;
@@ -865,7 +868,7 @@
           if (f.make) {
             this.hot[sh.i] = (this.hot[sh.i] || 0) + 1; if (this.hot[sh.i] >= 2) this.tag(14, sh);
             this.score[this.offTeam] += f.pts; this.box[sh.i][0] += f.pts; this.box[sh.i][3]++; if (this.astBy >= 0) this.box[this.offTeam * 5 + this.astBy][2]++;
-            this.ev(sh.name + (f.pts === 3 ? ' hits the three' : f.label === 'at the rim' ? ' scores at the rim' : f.label === 'in the paint' ? ' scores in the paint' : ' hits the jumper') + (f.open ? ', wide open.' : '.'), 'score');
+            this.ev(sh.name + (f.pts === 3 ? ' hits the three' : f.label === 'at the rim' ? ' scores at the rim' : f.label === 'in the paint' ? ' scores in the paint' : ' hits the jumper') + (f.open ? ', wide open.' : f.over ? (f.over.charAt(0) === '>' ? ', right through ' + f.over.slice(1) + '.' : ' over the smaller ' + f.over + '.') : '.'), 'score');
             this.finish('make', f.pts, true);
           } else {
             this.hot[sh.i] = 0;

@@ -173,8 +173,20 @@
     'Paul George': [0, 0, 3, 0], 'Keyonte George': [0, 0, -5, 0], 'Norman Powell': [0, 0, -4, 0], 'Zach LaVine': [3, 0, -6, 0], 'Michael Porter Jr.': [-3, 0, -6, 0], 'Lauri Markkanen': [0, 0, -3, 0],
     'Karl-Anthony Towns': [0, 0, -6, -8], 'Julius Randle': [0, 6, -5, 0], 'Franz Wagner': [0, 0, 2, 0], 'Deni Avdija': [0, 3, 2, 0], 'Jamal Murray': [0, 0, -3, 0], 'Naz Reid': [0, 0, 0, -4] };
 
+  // listed height (inches) and weight (lb), then a judgment vertical rating. Heights and weights are listed figures from memory and can be an inch or a few pounds off.
+  var PHYS = { 'Luka Dončić': [78, 230, 62], 'Shai Gilgeous-Alexander': [78, 195, 80], 'Victor Wembanyama': [88, 235, 85], 'Giannis Antetokounmpo': [83, 243, 94], 'Stephen Curry': [74, 185, 68], 'Jayson Tatum': [80, 210, 80],
+    'Jalen Brunson': [74, 190, 66], 'Tyrese Maxey': [74, 200, 84], 'Jamal Murray': [76, 215, 74], 'Anthony Davis': [82, 253, 86], 'Donovan Mitchell': [75, 215, 92], 'Deni Avdija': [80, 228, 78], 'Scottie Barnes': [80, 237, 82],
+    'Austin Reaves': [77, 197, 70], 'Nikola Jokić': [83, 284, 50], 'Devin Booker': [78, 206, 74], 'Ty Jerome': [77, 195, 62], 'Darius Acuff Jr.': [75, 190, 78], 'Cooper Flagg': [81, 205, 88], 'Cade Cunningham': [78, 220, 72],
+    'Franz Wagner': [82, 220, 76], 'Pascal Siakam': [80, 245, 80], 'Tyler Herro': [77, 195, 72], 'Alperen Şengün': [83, 243, 60], 'Julius Randle': [81, 250, 76], 'Zion Williamson': [78, 284, 97], 'Kevin Durant': [83, 240, 76],
+    'Jaylen Brown': [78, 223, 90], 'Nickeil Alexander-Walker': [77, 205, 76], 'Kyrie Irving': [74, 195, 74], 'Karl-Anthony Towns': [84, 248, 68], 'RJ Barrett': [78, 214, 78], 'Damian Lillard': [74, 195, 76], 'Brandon Miller': [79, 200, 80],
+    'Norman Powell': [75, 215, 82], 'Darius Garland': [73, 192, 72], 'Joel Embiid': [84, 280, 70], 'Keyonte George': [76, 185, 76], 'Paul George': [80, 220, 78], 'Zach LaVine': [77, 200, 95], 'Jaden McDaniels': [81, 185, 82],
+    'Bam Adebayo': [81, 255, 86], 'James Harden': [77, 220, 62], 'Jalen Johnson': [80, 219, 90], 'Michael Porter Jr.': [82, 218, 74], 'Yaxel Lendeborg': [81, 240, 78], 'Caleb Wilson': [81, 205, 86], 'Desmond Bane': [77, 215, 76],
+    'Dylan Harper': [78, 215, 78], 'Ayo Dosunmu': [77, 200, 78], 'Kyshawn George': [80, 208, 72], 'Lauri Markkanen': [84, 240, 76], 'Naz Reid': [81, 264, 72], 'Immanuel Quickley': [74, 190, 74], 'Duncan Robinson': [79, 215, 62],
+    'LaMelo Ball': [79, 180, 74], 'Ajay Mitchell': [76, 190, 74], 'Davion Mitchell': [72, 202, 76], 'LeBron James': [81, 250, 86], 'Trae Young': [73, 164, 64], 'Evan Mobley': [83, 215, 84], 'Stephon Castle': [78, 215, 86],
+    'AJ Dybantsa': [81, 210, 90], 'Cameron Boozer': [81, 250, 76], 'Amen Thompson': [79, 200, 97], 'OG Anunoby': [79, 232, 82], 'Saddiq Bey': [79, 215, 72], 'Jeremiah Fears': [75, 180, 80], 'Andrew Nembhard': [76, 191, 68], 'Darryn Peterson': [77, 205, 86] };
+  var PDEF = { PG: [75, 192, 74], SG: [77, 205, 76], SF: [79, 215, 78], PF: [81, 235, 78], C: [83, 250, 72] };
   function rate(s, name) {
-    var size = SIZE[s.pos], adj = ADJ[name] || [0, 0, 0, 0], c = A27[name], p = A26[name], sh = S26[name];
+    var ph = PHYS[name] || PDEF[s.pos], size = Math.max(0.5, Math.min(6, 1 + (ph[0] - 74) / 2.6)), adj = ADJ[name] || [0, 0, 0, 0], c = A27[name], p = A26[name], sh = S26[name];
     var wc = c ? c.mp : 1, wp = p ? p.mp * 0.35 : 0;
     function v(k) { var cur = c ? c[k] : 0; return p ? (cur * wc + p[k] * wp) / (wc + wp) : cur; }
     var guard = s.pos === 'PG' ? 8 : s.pos === 'SG' ? 5 : s.pos === 'SF' ? 2 : 0, quick = size <= 3 ? 6 : size === 4 ? 2 : -4;
@@ -197,11 +209,11 @@
       blk: cl(38 + v('blk') * 7 + size * 3),
       reb: cl(40 + v('trb') * 2.6),
       spd: cl(SPD[s.pos] + v('stl') * 1.5 - (v('trb') > 15 ? 3 : 0) + adj[0]),
-      str: cl(50 + size * 6 + v('trb') * 0.55 + ftr * 10 - (s.pos === 'PG' ? 2 : 0) + adj[1]),
+      str: cl((50 + size * 6 + v('trb') * 0.55 + ftr * 10 - (s.pos === 'PG' ? 2 : 0) + adj[1]) * 0.6 + (40 + (ph[1] - 160) * 0.42) * 0.4),
       oiq: cl(55 + ob * 3.2 + (v('ts') - 0.57) * 80 + ast / Math.max(6, tov) * 3),
       diq: cl(58 + db * 5 + (v('stl') + v('blk') / 2) * 2.5 + adj[2] * 0.5 + adj[3] * 0.3),
       cmp: cl(55 + (ft - 0.75) * 90 + usg * 0.5 + ob * 1.5 - Math.max(0, tov - 12) * 0.6),
-      size: size, ft: ft, fta: s.fta
+      size: size, hgt: ph[0], wgt: ph[1], vert: ph[2], ft: ft, fta: s.fta
     };
     var z = Z27[name];
     if (z) { // where he actually shoots from this season, pulled toward league average when the sample is thin
@@ -223,7 +235,7 @@
     ['Scoring', [['ins', 'Close shot'], ['mid', 'Mid-range'], ['three', 'Three-point'], ['ftr', 'Free throw']]],
     ['Playmaking', [['hnd', 'Ball handle'], ['pas', 'Pass accuracy']]],
     ['Defense', [['pd', 'Perimeter D'], ['rim', 'Interior D'], ['stl', 'Steal'], ['blk', 'Block'], ['reb', 'Rebounding']]],
-    ['Athleticism', [['spd', 'Speed'], ['str', 'Strength']]],
+    ['Athleticism', [['spd', 'Speed'], ['str', 'Strength'], ['vert', 'Vertical']]],
     ['Mental', [['oiq', 'Offensive IQ'], ['diq', 'Defensive IQ'], ['cmp', 'Composure']]]
   ];
 
