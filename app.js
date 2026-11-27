@@ -424,7 +424,7 @@
   function render() {
     renderHud(); watchFlash();
     var sc = $('#screen');
-    if (S.mode === 'async' && !ui.watch && S.replay && S.replay.id !== AS.w && S.phase !== 'live') { asWatch(); return; }
+    if (S.mode === 'async' && !ui.watch && !AS.busy && S.replay && S.replay.id !== AS.w && S.phase !== 'live') { asWatch(); return; } // only a saved possession is shown
     if (S.phase === 'live') { if (ui.built !== 'live' + S.pos) buildLive(sc); updateLive(); return; }
     ui.built = '';
     var keep = sc.scrollTop, key = S.phase + ':' + S.pos + ':' + ui.localStep;
@@ -789,9 +789,13 @@
   }
   function asPush() {
     AS.rev++; AS.busy = true; var rev = AS.rev, doc = JSON.stringify({ S: S, pend: pend, rev: rev });
+    clearTimeout(AS.slow); AS.slow = setTimeout(function () { if (AS.busy) { ui.err = 'Still saving. Check your connection: your move is sent as soon as the phone is back online.'; render(); } }, 7000);
     AS.ref.transaction(function (cur) { var c = null; try { c = cur ? JSON.parse(cur) : null; } catch (e) { c = null; } if (c && c.rev >= rev) return; return doc; }, function (err, ok) {
-      AS.busy = false;
-      if (err || !ok) { ui.err = 'The other coach moved at the same moment. Showing the latest game: do your turn again.'; AS.rev = 0; AS.ref.once('value').then(function (sn) { asRecv(sn.val()); }); }
+      AS.busy = false; clearTimeout(AS.slow);
+      if (err || !ok) { // the other coach saved first: take his version, then put this move on top of it
+        var again = AS.last; AS.last = null; AS.rev = 0; try { var s0 = JSON.parse(AS.snap); S = s0.S; S.mode = 'async'; S.code = AS.code; pend = s0.pend; } catch (e) { /* the fresh copy below replaces it anyway */ } ui.err = again ? '' : 'The other coach moved at the same moment. Showing the latest game.';
+        AS.ref.once('value').then(function (sn) { asRecv(sn.val()); if (again && !AS.busy) asAct(again, true); }).catch(function () { ui.err = 'Could not reach the game server. Check your connection and reopen the game.'; render(); });
+      } else { AS.last = null; if (/saving/i.test(ui.err || '')) ui.err = ''; }
       render();
     });
   }
@@ -801,7 +805,15 @@
     if (S.box && S.box.length === 10) sim.box = S.box.map(function (r) { return r.slice(); });
     sim.begin(S.off); evSeen = 0;
   }
-  function asAct(fn) { if (AS.busy || ui.watch) return; simFor(); fn(); if (S.phase === 'live') fastSim(); asPush(); render(); }
+  function asAct(fn, isRetry) {
+    if (ui.watch) return;
+    if (AS.busy) { ui.err = 'Still saving your last move. Give it a second.'; render(); return; }
+    AS.last = isRetry ? null : fn; // kept so a move that collides with the other coach's can be replayed on top of theirs
+    var before = JSON.stringify([S.phase, S.pos, S.turn, S.done, S.rd, S.picks]); AS.snap = JSON.stringify({ S: S, pend: pend });
+    try { simFor(); fn(); if (S.phase === 'live') fastSim(); } catch (e) { noteErr(e && e.message, 'turn ' + (e && e.stack ? String(e.stack).split('\n')[1] : '')); ui.err = 'That move hit an error and was not saved. Reopen the game and try again.'; AS.rev = 0; AS.ref.once('value').then(function (sn) { asRecv(sn.val()); }); render(); return; }
+    if (JSON.stringify([S.phase, S.pos, S.turn, S.done, S.rd, S.picks]) === before) { render(); return; } // nothing changed: do not write
+    asPush(); render();
+  }
   function fastSim() { // both plans are in: play the whole possession now and keep a recording of it
     var frames = [], logs = [], seen = evStart, guard = 0, k, off = S.off, nowInfo = S.now, posIdx = S.pos, pre = S.score.slice(), sit = S.sitRes;
     function grab() { frames.push(sim.frame().join(',')); while (seen < sim.events.length) { logs.push([frames.length - 1, sim.events[seen].txt]); seen++; } }
@@ -820,7 +832,11 @@
   }
   function asPlay() {
     var W = ui.watch, R = W.real.replay, el = (performance.now() - W.at) / 1000 - 0.9, n = R.frames.length, idx = Math.max(0, Math.min(n - 1, Math.floor(el * 12)));
-    if (idx !== W.n) { W.n = idx; frameT = R.frames[idx].split(',').map(Number); var lines = R.log.filter(function (l) { return l[0] <= idx; }).map(function (l) { return l[1]; }); if (lines.length !== S.log.length) { S.log = lines.slice(-6); updateLive(); } }
+    if (!W.fr) W.fr = R.frames.map(function (f) { return f.split(',').map(Number); });
+    var fpos = Math.max(0, Math.min(n - 1, el * 12)), i0 = Math.floor(fpos), i1 = Math.min(n - 1, i0 + 1), uu = fpos - i0, fa = W.fr[i0], fb2 = W.fr[i1], mix = fb2.slice();
+    for (var q = 0; q < 35; q++) { var isP = (q >= 1 && q <= 3) || (q >= 5 && (q - 5) % 3 < 2); if (isP && Math.abs(fb2[q] - fa[q]) < 150) mix[q] = fa[q] + (fb2[q] - fa[q]) * uu; } if (uu < 0.5) mix[4] = fa[4];
+    frameT = mix;
+    if (idx !== W.n) { W.n = idx; var lines = R.log.filter(function (l) { return l[0] <= idx; }).map(function (l) { return l[1]; }); if (lines.length !== S.log.length) { S.log = lines.slice(-6); updateLive(); } }
     drawLive();
     if (!W.done && el * 12 > n + 4) {
       W.done = true; S.flash = R.flash; S.score = R.score.slice(); renderHud(); updateLive();
@@ -1390,7 +1406,7 @@
       add(ov, [
         h('.ohead', h('h2', { text: 'Draw a play' }), h('button.btn.small', { text: 'Cancel', onclick: closeOverlay }),
           h('button.btn.small.primary', { text: 'Use play', onclick: function () {
-            trimEmpty(); carry(null); ed.test = null; var out = cleanPlay(ed.p); if (!out) { ed.msg = 'Add at least one step before using the play.'; build(); return; }
+            trimEmpty(); carry(null); ed.test = null; if (ed.dirty) delete ed.p.sig; var out = cleanPlay(ed.p); if (!out) { ed.msg = 'Add at least one step before using the play.'; build(); return; }
             out.group = undefined; var k = -1; if (!(out.name || '').trim()) out.name = 'My play';
             if (src == null || src.name !== out.name) { var base = out.name, nn = 2; while (custom.some(function (c) { return c.name === out.name && playSig(c) !== playSig(out); }) || BB.PLAYS.some(function (c) { return c.name === out.name; })) out.name = base + ' ' + nn++; }
             custom.forEach(function (c, i) { if (c.name === out.name) k = i; }); if (k >= 0) custom[k] = out; else custom.push(out); if (custom.length > 24) custom.shift(); saveCustom();
@@ -1405,6 +1421,10 @@
             return h('div', h('.trow', h('span.grow', { text: x.name }), h('b', { text: x.full + ' of ' + x.n + ' ran as drawn' }), h('span.pp' + (x.ppp >= 1.15 ? '.good' : ''), { text: x.ppp.toFixed(2) + ' pts' })),
               x.whyN >= 5 ? h('p.note', { text: 'Broke ' + x.whyN + ' times at step ' + x.at + ': ' + x.why + '. ' + fixFor(x.why) }) : null);
           }), h('p.note', { text: 'Points are per try with these ten players. Freelance offense scores about 1.15. A new play also gets a first-time edge in a real game that this test leaves out.' })) : null,
+          (function () { var plE = names(team);
+            return h('div', h('.chips', plE.map(function (q, i) { return h('button.chip.who' + (ed.swap === i ? '.on' : ''), { text: (i + 1) + ' ' + q.tag, onclick: function () {
+              if (ed.swap == null || ed.swap === i) ed.swap = ed.swap === i ? null : i; else { var had = ed.p.sig, np = swapSlots(ed.p, ed.swap, i); if (had) np.sig = had; else delete np.sig; ed.p = np; ed.msg = plE[ed.swap].tag + ' and ' + q.tag + ' traded places.'; ed.swap = null; ed.test = null; }
+              build(); } }); })), h('p.note', { text: ed.swap != null ? 'Now tap who trades places with ' + plE[ed.swap].tag + '.' : 'Your players. Tap two to trade their places in this play.' })); })(),
           h('.chips', tools),
           h('.row', h('.grow', csel),
             h('button.btn.small', { text: 'Preview', onclick: preview }),
@@ -1454,6 +1474,7 @@
     function up() {
       var before = starts(), was = JSON.stringify(ed.p.beats), nSteps = ed.p.beats.length, at = ed.step;
       upInner();
+      if (JSON.stringify(ed.p.beats) !== was) ed.dirty = true;
       if (JSON.stringify(ed.p.beats) !== was || at === 0) { var fx = carry(before); if (fx && at > 0 && at < nSteps && !ed.msg) ed.msg = 'Later steps were updated to follow this change.'; if (fx) build(); else redraw(); }
     }
     function upInner() {
@@ -1824,7 +1845,7 @@
       S.hist && S.hist.length ? h('details.card.recap', h('summary', h('h3', { text: 'Possession by possession' })), S.hist.map(function (x, n) {
         return h('.hrow', h('span.ovr', { text: n + 1 }), h('div', h('b.t' + x.t, { text: TEAM[x.t] + ': ' + x.r }), h('p.note', { text: (x.run ? 'Ran ' + x.run + '. ' : '') + x.l })));
       })) : null,
-      canRestart ? h('button.btn.primary', { text: 'Rematch, same teams', onclick: function () { saved = { off: [null, null], def: [null, null] }; startMatch(); changed(); } }) : h('p.note', { text: 'The host can start a rematch or a new draft.' }),
+      canRestart ? h('button.btn.primary', { text: 'Rematch, same teams', onclick: function () { saved = { off: [null, null], def: [null, null] }; if (S.mode === 'async') { asAct(function () { S.replay = null; startMatch(); }); return; } startMatch(); changed(); } }) : h('p.note', { text: 'The host can start a rematch or a new draft.' }),
       canRestart ? h('button.btn', { text: 'New draft', onclick: startDraft }) : null);
   }
 
