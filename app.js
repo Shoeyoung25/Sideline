@@ -172,7 +172,8 @@
   var slowUntil = 0, slowCool = [0, 0];
   function armSlow(team) { // picking a target for a call slows the game for a moment, for both coaches
     var now = Date.now(); if (S.phase !== 'live' || !sim || sim.done || now < slowCool[team] || now < ui.cool[team]) return;
-    slowUntil = now + 2600; slowCool[team] = now + 7000; S.slow = { team: team, until: slowUntil }; if (S.mode === 'host') pubState(); updateLive();
+    slowUntil = now + 2600; slowCool[team] = Infinity; // one slow motion per coach per possession, reset when the next one starts
+    S.slow = { team: team, until: slowUntil }; if (S.mode === 'host') pubState(); updateLive();
   }
   function liveCall(team, c) {
     if (S.phase !== 'live' || !sim || !c) return;
