@@ -60,7 +60,7 @@
   // startPossession clears lastShot below
   Sim.prototype.startPossession = function (offTeam, po, pdn) {
     var self = this, i, p;
-    this.offTeam = offTeam; this.defTeam = 1 - offTeam; this.done = null; this.sc = 24;
+    this.offTeam = offTeam; this.defTeam = 1 - offTeam; this.done = null; this.sc = 20;
     for (i = 0; i < 10; i++) { p = this.P[i]; p.lay = false; p.stun = 0; p.trailUntil = 0; p.reactUntil = 0; p.stripAt = 0; p.path = null; p.scrUntil = 0; p.scrPending = false; p.imm = {}; p.driving = false; p.post = false; p.dribbled = false; p.mode = null; p.tx = p.x; p.ty = p.y; }
     this.ball.fly = null; this.ball.reb = null;
     var offs = this.offs();
@@ -78,9 +78,16 @@
     var setup = plays.length ? plays[0].setup : (po.style === 'pnr' ? FHS : po.style === 'post' ? F41 : F5);
     setup = setup.map(function (q) { return [q[0], q[1]]; });
     if (!plays.length && hd !== 0) { var tmp = setup[0]; setup[0] = setup[hd]; setup[hd] = tmp; }
-    this.o = { style: po.style || 'motion', tempo: po.tempo || 'set', focus: po.focus == null ? null : po.focus, after: po.after || 'crash',
+    // every possession starts with a sideline inbound in the half court
+    var side = this.rand() < 0.5 ? -1 : 1, inb = -1, ib = 1e9, hpI = hoop(offTeam);
+    for (i = 0; i < 5; i++) { if (i === hd) continue; var sc0 = Math.abs(setup[i][0] - side * 25) + Math.abs(setup[i][1] - 28) * 0.6; if (sc0 < ib) { ib = sc0; inb = i; } }
+    offs.forEach(function (q) { var sp = q.slot === inb ? [side * 25.9, 28] : setup[q.slot], w = h2w(offTeam, sp[0], sp[1]); q.x = q.tx = w.x; q.y = q.ty = w.y; q.cvx = q.cvy = 0; });
+    var amap = (pdn.match && pdn.match.length === 5 ? pdn.match : [0, 1, 2, 3, 4]);
+    this.defs().forEach(function (q) { var O = self.op(amap[q.slot] != null ? amap[q.slot] : q.slot) || self.op(q.slot), u = unit(O.x, O.y, hpI.x, hpI.y), gap = O.slot === inb ? 4.5 : 3.5; q.x = q.tx = clamp(O.x + u.x * gap, 2, 48); q.y = q.ty = O.y + u.y * gap; q.cvx = q.cvy = 0; });
+    this.ball.h = this.op(inb).i; this.ball.x = this.op(inb).x; this.ball.y = this.op(inb).y; this.ball.z = 0; this.inbound = false; this.wasInbound = false;
+    this.o = { inb: inb, inbPassed: false, safe: false, style: po.style || 'motion', tempo: 'set', focus: po.focus == null ? null : po.focus, after: po.after || 'crash',
       plays: plays, pi: -1, beats: null, bi: 0, bt: 0, minT: 0.3, phase: 'adv', think: 0, handler: hd, setup: setup, t0: this.t, arrT: null,
-      free: false, gen: false, forced: false, crossed: false, nextTC: this.t + 0.15, fb: -1, drives: 0, passes: 0, lastBallScreen: -9,
+      free: false, gen: false, forced: false, crossed: true, nextTC: this.t + 0.15, fb: -1, drives: 0, passes: 0, lastBallScreen: -9,
       pendingRead: false, liveQ: null, reset: null, lastStyle: -1, fails: 0, ho: null, opt: null, soc: -1, defer: null, endSh: -1, movers: [] };
     if (this.wasInbound) this.o.nextTC = this.t + 2.5;
     var style = pdn.style || 'man';
@@ -248,7 +255,7 @@
     return clamp(risk, 0.005, 0.9);
   };
   Sim.prototype.pass = function (H, T) {
-    var risk = this.passRisk(H, T), o = this.o, self = this;
+    var o = this.o, self = this, risk = o.safe ? 0 : this.passRisk(H, T);
     H.driving = false; H.post = false; o.passes++;
     var l = pd(H, T);
     if (this.rand() < risk) {
@@ -601,39 +608,17 @@
     return false;
   };
 
-  Sim.prototype.advance = function (dt) {
-    var o = this.o, d = this.d, off = this.offTeam, H = this.holder(), self = this;
-    if (o.fb === H.slot) { this.fastBreak(H); return; }
-    if (this.t >= o.nextTC) { o.nextTC = this.t + 0.3; if (this.transition()) return; }
-    var hd = this.op(o.handler), fast = o.tempo === 'push' || (d.style === 'press' && !o.crossed);
-    if (H !== hd) {
-      if (this.t - o.t0 > 3.5) { o.handler = H.slot; hd = H; }
-      else {
-        var hh = w2h(off, H.x, H.y), tg = h2w(off, clamp(hh.hx + (hh.hx > 0 ? -10 : 10), -20, 20), Math.max(hh.hy - 16, 30));
-        hd.tx = tg.x; hd.ty = tg.y; hd.sp = 0.9; H.tx = H.x; H.ty = H.y;
-        if (pd(H, hd) < 26 && this.t - o.t0 > 0.5 && this.passRisk(H, hd) < 0.3) { this.pass(H, hd); return; }
-      }
+  Sim.prototype.advance = function (dt) { // the inbound: in to the ball handler, then everyone is set
+    var o = this.o, off = this.offTeam, H = this.holder(), I = this.op(o.inb), hd = this.op(o.handler);
+    if (!o.inbPassed) {
+      if (this.t - o.t0 < 0.65) return;
+      o.inbPassed = true; o.safe = true; this.pass(I, hd); o.safe = false; o.passes = 0;
+      var w = h2w(off, o.setup[I.slot][0], o.setup[I.slot][1]); I.tx = w.x; I.ty = w.y; I.sp = 0.9;
+      this.ev(I.name + ' inbounds to ' + hd.name + '.', 'i'); return;
     }
-    this.offs().forEach(function (q) {
-      if (q !== hd && q !== H) { var w = h2w(off, o.setup[q.slot][0], o.setup[q.slot][1]); q.tx = w.x; q.ty = w.y; q.sp = fast ? 1 : 0.75; }
-    });
-    if (H === hd) {
-      var sw = h2w(off, o.setup[hd.slot][0], o.setup[hd.slot][1]); H.tx = sw.x; H.ty = sw.y; H.sp = fast ? 0.92 : 0.64; H.dribbled = true;
-      var h2 = w2h(off, H.x, H.y);
-      if (d.style === 'press' && !o.crossed) {
-        var G = this.guardOf(H);
-        if (h2.hy > 47 && G && pd(G, H) < 5.5) { var rate = clamp(0.02 * (1 + (G.r.stl - H.r.hnd) / 45), 0.006, 0.06); if (this.rand() < rate * dt) { this.loseBall(G.name + ' steals it in the press.', G, 'Steal', 0, 0, 0.24); return; } }
-      }
-      if (!o.crossed && h2.hy < 47) { o.crossed = true; if (d.style === 'press') { this.defs().forEach(function (q) { q.stun = Math.max(q.stun, 0.55); }); this.ev('The press is broken.', 'i'); } }
-      if (pd(H, sw) < 2.5) {
-        if (o.arrT == null) o.arrT = this.t;
-        var set = true; this.offs().forEach(function (q) { if (dist(q.x, q.y, q.tx, q.ty) > 5) set = false; });
-        if (o.tempo === 'push' || set || this.t - o.arrT > 1.8) {
-          o.phase = 'run'; o.think = 0.15;
-          if (o.plays.length) this.loadPlay(0);
-        }
-      }
-    }
+    if (H && H !== hd) o.handler = H.slot;
+    o.lastPass = null;
+    if (dist(I.x, I.y, I.tx, I.ty) < 7 || this.t - o.t0 > 2.2) { o.phase = 'run'; o.think = 0.15; if (o.plays.length) this.loadPlay(0); }
   };
 
   Sim.prototype.updOffense = function (dt) {
@@ -913,6 +898,7 @@
     a.push(o && (ph === 1 || ph === 2) ? o.pi : -1, o && ph === 2 ? o.bi : 0, ph);
     var tg = (this.tags || []).filter(function (q) { return t - q.t < 1.4; });
     for (var k = 0; k < 3; k++) { var q = tg[k]; a.push(q ? q.c : 0, q ? q.i : 0, q ? Math.round((t - q.t) * 10) : 0); }
+    a.push(Math.round(t * 100)); // game clock in hundredths, so the other phone can play frames back evenly
     return a;
   };
 

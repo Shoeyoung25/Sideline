@@ -87,7 +87,7 @@
     var m = Array.isArray(p.match) ? p.match.map(slot) : [0, 1, 2, 3, 4], seen = {}, ok = m.length === 5;
     m.forEach(function (v) { if (seen[v]) ok = false; seen[v] = 1; }); if (!ok) m = [0, 1, 2, 3, 4];
     var pp = {}; if (p.pp) [0, 1, 2, 3, 4].forEach(function (k) { if (p.pp[k] === 'sag' || p.pp[k] === 'tight') pp[k] = p.pp[k]; });
-    return { style: oneOf(p.style, ['man', 'switch', 'zone', 'press', 'mix'], 'man'), match: m, cover: oneOf(p.cover, ['drop', 'switch', 'hedge', 'trap'], 'drop'),
+    return { style: oneOf(p.style, ['man', 'switch', 'zone', 'mix'], 'man'), match: m, cover: oneOf(p.cover, ['drop', 'switch', 'hedge', 'trap'], 'drop'),
       press: oneOf(p.press, ['sag', 'normal', 'tight'], 'normal'), pp: pp, help: oneOf(p.help, ['help', 'home'], 'help'), after: oneOf(p.after, ['box', 'leak'], 'box'), rule: cleanRule(p.rule) };
   }
 
@@ -144,14 +144,14 @@
       sim.lastShot = null; evStart = sim.events.length;
       sim.startPossession(S.off, pend[S.off], pend[1 - S.off]);
       S.now = { off: descOff(pend[S.off]), def: descDef(pend[1 - S.off]), n: pend[S.off].plays.filter(Boolean).map(function (q) { return q.beats.length; }), nm: pend[S.off].plays.filter(Boolean).map(function (q) { return q.name; }), st: styleName(BB.OFF_STYLES, pend[S.off].style) };
-      var look = { man: 'man to man', 'switch': 'man to man, switching everything', zone: 'a 2-3 zone', press: 'a full court press' }[sim.d.style];
+      var look = { man: 'man to man', 'switch': 'man to man, switching everything', zone: 'a 2-3 zone' }[sim.d.style];
       sim.ev(TEAM[1 - S.off] + ' is in ' + look + '.', 'i');
       S.phase = 'live'; S.flash = { txt: TEAM[S.off] + ' ball', team: S.off, start: 1 }; startHold = 1.1; liveFor = 0; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null; frameT = sim.frame();
     }
     changed();
   }
   function styleName(list, id) { var x = list.filter(function (q) { return q.id === id; })[0]; return x ? x.name : id; }
-  function descOff(p) { var pl = p.plays.filter(Boolean).map(function (q) { return q.name; }); return (pl.length ? pl.join(', then ') + ', then ' : '') + styleName(BB.OFF_STYLES, p.style).toLowerCase() + (p.tempo === 'push' ? ', pushing the pace' : '') + (p.focus != null ? ', through ' + names(S.off)[p.focus].tag : ''); }
+  function descOff(p) { var pl = p.plays.filter(Boolean).map(function (q) { return q.name; }); return (pl.length ? pl.join(', then ') + ', then ' : '') + styleName(BB.OFF_STYLES, p.style).toLowerCase() + (p.focus != null ? ', through ' + names(S.off)[p.focus].tag : ''); }
   function descDef(p) { var z = p.style === 'zone'; return styleName(BB.DEF_STYLES, p.style) + (z ? '' : ', ' + (p.style === 'switch' ? 'switch' : p.cover) + ' on screens') + ', ' + { sag: 'sagging off', normal: 'normal pressure', tight: 'tight pressure' }[p.press] + ', ' + (p.help === 'help' ? 'helping on drives' : 'staying home') + (p.rule ? '. Emphasis: ' + ruleText(p.rule, names(S.off)) : ''); }
   function endPossession() {
     S.score = sim.score.slice(); S.pos++; S.box = sim.box.map(function (r) { return r.slice(); });
@@ -260,7 +260,7 @@
     if (!host) return;
     Net.hostSeen = Date.now();
     var pr = host.presence;
-    if (pr.f && Array.isArray(pr.f) && pr.f.length === 53) { if (!frameT || pr.f.join() !== frameT.join()) Net.frameAt = Date.now(); frameT = pr.f.slice(); }
+    if (pr.f && Array.isArray(pr.f) && pr.f.length === 54) { if (!frameT || pr.f.join() !== frameT.join()) { Net.frameAt = Date.now(); var fb = Net.buf = Net.buf || [], ft = pr.f[53] * 10, nowP = performance.now(); if (fb.length && ft < fb[fb.length - 1].t) { fb.length = 0; Net.off = null; } fb.push({ t: ft, f: pr.f.slice() }); if (fb.length > 12) fb.shift(); Net.off = Net.off == null ? nowP - ft : Math.min(Net.off + 0.5, nowP - ft); } frameT = pr.f.slice(); }
     if (pr.g) {
       var js = JSON.stringify(pr.g);
       if (js !== Net.lastG) {
@@ -434,9 +434,7 @@
       h('.card', h('h3', { text: 'Plays' }), playSlot(0), playSlot(1)),
       h('.card', h('h3', { text: 'Freelance style' }), chipRow(BB.OFF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note + ' Used whenever no play is running.' })),
       h('.card',
-        field('Run it through', chipRow([[null, 'Nobody']].concat(pl.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.focus, function (v) { f.focus = v; })),
-        field('Tempo', chipRow([['set', 'Set up'], ['push', 'Push']], f.tempo, function (v) { f.tempo = v; }), f.tempo === 'push' ? 'Sprint up and attack before the defense is set.' : 'Walk it up into the half court.'),
-        field('After the shot', chipRow([['crash', 'Crash the boards'], ['back', 'Get back']], f.after, function (v) { f.after = v; }), f.after === 'crash' ? 'More offensive rebounds, open to a fast break.' : 'Few offensive rebounds, no easy run-outs.'))),
+        field('Run it through', chipRow([[null, 'Nobody']].concat(pl.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.focus, function (v) { f.focus = v; })))),
       h('.foot',
         prev ? h('button.btn', { text: 'Same as last time', onclick: function () { ui.fo = null; if (S.mode === 'local') ui.localStep = 2; sendPlan(t, clone(prev)); if (S.mode === 'local') render(); } }) : null,
         h('button.btn.primary', { text: 'Done', onclick: function () { var plan = clone(f); ui.fo = null; if (S.mode === 'local') ui.localStep = 2; sendPlan(t, plan); if (S.mode === 'local') render(); } })));
@@ -475,7 +473,7 @@
   function formDefense(t) {
     if (!ui.fd) { ui.fd = saved.def[t] ? clone(saved.def[t]) : { style: 'man', match: [0, 1, 2, 3, 4], cover: 'drop', press: 'normal', pp: {}, help: 'help', after: 'box' }; ui.fd.rule = null; ui.fd.ruleText = ''; ui.fd.ruleMsg = ''; }
     var f = ui.fd, st = BB.DEF_STYLES.filter(function (s) { return s.id === f.style; })[0], mine = names(t), opp = names(1 - t);
-    var manOn = f.style === 'man' || f.style === 'switch' || f.style === 'press' || f.style === 'mix';
+    var manOn = f.style === 'man' || f.style === 'switch' || f.style === 'mix';
     function edge(d, o) { // what a coach would notice about this pairing
       var out = [], ds = d.r.size - o.r.size, dv = d.r.spd - o.r.spd;
       if (ds <= -2) out.push(['bad', 'Gives up size']); else if (ds >= 2) out.push(['ok', 'Bigger']);
@@ -520,8 +518,7 @@
         field('Ball screens', chipRow([['drop', 'Drop'], ['switch', 'Switch'], ['hedge', 'Hedge'], ['trap', 'Trap']], cov, function (v) { f.cover = v; }),
           { drop: 'Big sits back at the rim. Stops the roll, gives up pull-ups and pops.', 'switch': 'Swap men. Nothing open off the screen, you live with the mismatch.', hedge: 'Big jumps out at the ball, then recovers. The roller is open for a beat.', trap: 'Two on the ball. Forces mistakes, leaves someone open.' }[cov]),
         field('Pressure', chipRow([['sag', 'Sag off'], ['normal', 'Normal'], ['tight', 'Tight']], f.press, function (v) { f.press = v; }), { sag: 'Harder to drive on, easier to shoot over.', normal: 'Balanced.', tight: 'Takes away shots, easier to blow by.' }[f.press]),
-        field('Help', chipRow([['help', 'Help on drives'], ['home', 'Stay home']], f.help, function (v) { f.help = v; }), f.help === 'help' ? 'A second defender meets the driver. Kick-outs find shooters.' : 'Everyone stays with his shooter. The driver finishes one on one.'),
-        field('After the shot', chipRow([['box', 'Box out'], ['leak', 'Leak out']], f.after, function (v) { f.after = v; }), f.after === 'box' ? 'All five rebound.' : 'One runs early for a fast break. More offensive rebounds for them.')),
+        field('Help', chipRow([['help', 'Help on drives'], ['home', 'Stay home']], f.help, function (v) { f.help = v; }), f.help === 'help' ? 'A second defender meets the driver. Kick-outs find shooters.' : 'Everyone stays with his shooter. The driver finishes one on one.')),
       h('.card', h('h3', { text: 'Emphasis for this possession' }),
         h('.row', h('.grow', ruleIn), h('button.btn.small', { text: 'Read it', onclick: readRule })),
         f.rule ? h('.banner', { text: ruleText(f.rule, opp) }) : (f.ruleMsg ? h('p.note', { text: f.ruleMsg }) : h('p.note', { text: 'Type a rule in your own words, then tap Read it to check how it was understood.' })))),
@@ -975,7 +972,7 @@
   function planText(v) {
     var n = S.now, ph = v[43], pi = v[41], seeOff = S.mode === 'local' || me === S.off, seeDef = S.mode === 'local' || me !== S.off, a = '', b = '';
     if (!n) return ['', ''];
-    if (ph === 0) a = 'Bringing it up'; else if (ph === 1) a = seeOff && n.nm[pi] ? 'Setting up ' + n.nm[pi] : 'Setting up a play';
+    if (ph === 0) a = 'Inbounding'; else if (ph === 1) a = seeOff && n.nm[pi] ? 'Setting up ' + n.nm[pi] : 'Setting up a play';
     else if (ph === 2) a = seeOff && n.nm[pi] ? n.nm[pi] + ': step ' + (v[42] + 1) + ' of ' + n.n[pi] : 'Running a set play';
     else a = 'Freelance' + (seeOff ? ': ' + n.st.toLowerCase() : '');
     if (seeDef) b = n.def.split('. Emphasis')[0].replace(' on screens', '').replace(' pressure', '').replace('helping on drives', 'help').replace(/, /g, ' \u00b7 ');
@@ -1029,16 +1026,24 @@
   }
   function drawLive() {
     var cv = $('#court'); if (!cv || !frameT) return;
-    var wrap = cv.parentNode, dpr = Math.min(2, window.devicePixelRatio || 1), W = Math.round(wrap.clientWidth * dpr), H = Math.round(wrap.clientHeight * dpr);
+    var wrap = cv.parentNode, dpr = Math.min(ui.lowRes ? 1.25 : 2, window.devicePixelRatio || 1), W = Math.round(wrap.clientWidth * dpr), H = Math.round(wrap.clientHeight * dpr);
     if (W < 10 || H < 10) return;
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
     var f = frameT, i;
+    if (!auth && Net.buf && Net.buf.length > 1 && Net.off != null) { // play the host's frames back on an even clock, a beat behind, blending between the two nearest
+      var want = performance.now() - Net.off - 140, B = Net.buf, j = B.length - 1;
+      while (j > 0 && B[j - 1].t > want) j--;
+      var fa = B[Math.max(0, j - 1)], fbb = B[j], u = fbb.t > fa.t ? Math.max(0, Math.min(1, (want - fa.t) / (fbb.t - fa.t))) : 1;
+      f = fbb.f.slice();
+      for (i = 0; i < 35; i++) { var isP = (i >= 1 && i <= 3) || (i >= 5 && (i - 5) % 3 < 2); if (isP && Math.abs(fbb.f[i] - fa.f[i]) < 150) f[i] = fa.f[i] + (fbb.f[i] - fa.f[i]) * u; }
+      if (u < 0.5 && fa.f[4] !== fbb.f[4]) f[4] = fa.f[4];
+    }
     if (!viewCur || viewCur.length !== f.length) viewCur = f.slice();
-    var k = auth ? 1 : 0.3;
+    var k = 1;
     for (i = 0; i < f.length; i++) { var isPos = (i >= 1 && i <= 3) || (i >= 5 && i < 35 && (i - 5) % 3 < 2); viewCur[i] = isPos && Math.abs(f[i] - viewCur[i]) < 150 ? viewCur[i] + (f[i] - viewCur[i]) * k : f[i]; }
     var v = viewCur, bx = v[1] / 10, by = v[2] / 10, bz = v[3] / 10, holder = v[4];
     // camera: whole court while the ball comes up, then the attacking half, using all the height the screen has
-    var hp = E.hoop(S.off).y, span = Math.min(98, Math.max(52, H / (W / 54))), tgt = Math.abs(by - hp) < 50 ? (hp > 47 ? [96 - span, 96] : [-2, -2 + span]) : [-2, 96];
+    var hp = E.hoop(S.off).y, span = Math.min(98, Math.max(52, H / (W / 54))), tgt = hp > 47 ? [96 - span, 96] : [-2, -2 + span]; if (cam && Math.abs(cam[0] - tgt[0]) > 20) cam = null; // always the half court being attacked
     if (!cam) cam = tgt.slice(); cam[0] += (tgt[0] - cam[0]) * 0.07; cam[1] += (tgt[1] - cam[1]) * 0.07;
     var s = Math.min(W / 54, H / (cam[1] - cam[0])), cx = W / 2, cy = H / 2, my = (cam[0] + cam[1]) / 2;
     ui.map = { s: s, inv: function (px, py) { return { x: 25 + (px - cx) / s, y: my + (py - cy) / s }; } };
@@ -1087,11 +1092,12 @@
 
   function loop(ts) {
     requestAnimationFrame(loop);
-    var dt = Math.min(0.05, (ts - lastTs) / 1000 || 0); lastTs = ts;
+    var raw = (ts - lastTs) / 1000 || 0, dt = Math.min(0.05, raw); lastTs = ts;
     if (S.phase !== 'live') return;
+    if (raw < 0.5) { ui.slow = (ui.slow || 0) * 0.97 + (raw > 0.03 ? 1 : 0) * 0.03; if (ui.slow > 0.5 && !ui.lowRes) ui.lowRes = true; } // a struggling phone draws the court at lower resolution
     if (auth && sim && startHold > 0) { startHold -= dt; if (startHold <= 0) { S.flash = null; if (S.mode === 'host') pubState(); updateLive(); } if (S.mode === 'host' && Net.r && ts - lastPub > 200) { lastPub = ts; Net.r.presence({ f: frameT }).catch(noop); } drawLive(); return; }
     if (auth && sim) {
-      acc += dt * SPEED * (frameT && frameT[43] === 0 && sim.d && sim.d.style !== 'press' ? 1.7 : 1); var n = 0; liveFor += dt; // the walk up the floor plays a little faster
+      acc += dt * SPEED; var n = 0; liveFor += dt; // the walk up the floor plays a little faster
       try { while (acc >= 1 / 60 && n++ < 6) { sim.step(1 / 60); acc -= 1 / 60; } }
       catch (err) { acc = 0; replayPossession('That possession hit an error and was restarted.'); return; }
       if (liveFor > 70 && !sim.done) { replayPossession('That possession stalled and was restarted.'); return; }

@@ -327,7 +327,6 @@
     { id: 'man', name: 'Man', note: 'Everyone guards his matchup.' },
     { id: 'switch', name: 'Switch all', note: 'Swap matchups on every screen. No open shots, but mismatches.' },
     { id: 'zone', name: '2-3 zone', note: 'Pack the paint. Stops drives and post ups, gives up threes.' },
-    { id: 'press', name: 'Full court press', note: 'Pressure the ball up the floor. Steals, or easy baskets if it breaks.' },
     { id: 'mix', name: 'Mix it up', note: 'A different look each possession, picked at random.' }
   ];
 
