@@ -31,6 +31,7 @@
   // ---------- state ----------
   var PROTO = 4; // bump only when the two phones can no longer talk to each other
   function uid() { return Math.random().toString(36).slice(2, 10); }
+  function gameLen() { try { var v = +localStorage.getItem('sideline.len'); return v === 5 || v === 10 ? v : 7; } catch (e) { return 7; } }
   function fresh() { return { proto: PROTO, build: window.SIDELINE_BUILD || '', phase: 'home', mode: 'local', code: '', picks: [[], []], lineup: [[], []], turn: 0, pos: 0, total: 14, off: 1, score: [0, 0], done: [false, false], log: [], guest: false, ot: false }; }
   var S = fresh(), me = 0, auth = true, sim = null, pend = [null, null];
   var saved = { off: [null, null], def: [null, null] };
@@ -144,7 +145,7 @@
     changed();
   }
   function startMatch() {
-    S.score = [0, 0]; S.pos = 0; S.total = 14; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.seenP = [{}, {}]; S.book = [[], []]; S.sitRes = null; S.ptr = [null, null]; S.tend = null; S.tos = [2, 2]; S.afterTO = 0; S.calls = [null, null]; S.clutch = false; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
+    S.score = [0, 0]; S.pos = 0; S.base = gameLen() * 2; S.total = S.base; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.seenP = [{}, {}]; S.book = [[], []]; S.sitRes = null; S.ptr = [null, null]; S.tend = null; S.tos = [2, 2]; S.afterTO = 0; S.calls = [null, null]; S.clutch = false; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
@@ -221,7 +222,7 @@
     if (ls) { var kind = { three: 'three', rim: 'shot at the rim', 'short': 'short shot', mid: 'mid-range jumper' }[ls.type], open = ls.d1 >= 6 ? 'Wide open' : ls.d1 >= 4 ? 'Open' : ls.d1 >= 2.5 ? 'Contested' : 'Heavily contested';
       S.look = { txt: open + ' ' + kind + ' for ' + ls.who + ': a ' + Math.round(ls.pm * 100) + '% look' + (ls.d1 < 6 && ls.by ? ', ' + ls.by + ' ' + Math.max(1, Math.round(ls.d1)) + ' ft away.' : '.'), good: ls.pm * (ls.type === 'three' ? 3 : 2) >= 1.05 }; }
     if (S.now) { S.scout = S.scout || [{}, {}]; S.scout[S.off].off = S.now.off; S.scout[1 - S.off].def = S.now.def; S.scout[S.off].res = S.flash ? S.flash.txt : ''; }
-    S.hist.push({ t: S.off, r: S.flash ? S.flash.txt : '', l: S.look ? S.look.txt : (S.flash && S.flash.sub) || '', run: S.now ? S.now.off : '' }); if (S.hist.length > 24) S.hist.shift();
+    S.hist.push({ t: S.off, r: S.flash ? S.flash.txt : '', l: S.look ? S.look.txt : (S.flash && S.flash.sub) || '', run: S.now ? S.now.off : '' }); if (S.hist.length > 30) S.hist.shift();
     if (S.pos >= S.total) {
       if (S.score[0] === S.score[1]) { S.total += 2; S.ot = true; S.log.push('Tied after regulation. One more possession each.'); }
       else { S.phase = 'final'; clearGame(); changed(); return; }
@@ -434,7 +435,7 @@
     var mid;
     if (S.phase === 'draft') mid = h('.mid', 'Draft', h('strong', { text: (S.picks[0].length + S.picks[1].length) + ' / 10' }));
     else if (S.phase === 'final') mid = h('.mid', 'Final', h('strong', { text: S.ot ? 'OT' : 'Full time' }));
-    else mid = h('.mid', S.ot && S.pos >= 14 ? 'Overtime' : 'Possession', h('strong', { text: Math.min(S.pos + 1, S.total) + ' / ' + S.total }));
+    else mid = h('.mid', S.ot && S.pos >= (S.base || 14) ? 'Overtime' : 'Possession', h('strong', { text: Math.min(S.pos + 1, S.total) + ' / ' + S.total }));
     function tm(t) { return h('.tm' + (t ? '.r' : '') + ((S.phase === 'coach' || S.phase === 'live') && S.off === t ? '.has' : ''), t ? [h('span.ballmark'), h('span', { text: TEAM[t] }), h('b', { text: S.score[t] })] : [h('b', { text: S.score[t] }), h('span', { text: TEAM[t] }), h('span.ballmark')]); }
     var a = tm(0), b = tm(1); a.style.color = '#8fb6ff'; b.style.color = '#ff9a90';
     add(hud, [a, mid, b]);
@@ -455,7 +456,8 @@
         h('div', h('span', { text: 'With the ball: draw a play or pick one. A play they have not seen catches them a step behind.' })),
         h('div', h('span', { text: 'On defense: set your matchups and, if you dare, sit on one of their plays. Right guess blows it up, wrong guess leaves you leaning.' })),
         h('div', h('span', { text: 'Tap Done and it runs live. You can make calls and use timeouts while it plays.' })),
-        h('div', h('span', { text: '7 possessions each. Tied at the end means one more each.' })))),
+        h('div', h('span', { text: gameLen() + ' possessions each. Tied at the end means one more each.' }))),
+        h('.field', h('label', { text: 'Game length' }), h('.chips', [5, 7, 10].map(function (n) { return h('button.chip' + (gameLen() === n ? '.on' : ''), { text: n + ' each', onclick: function () { try { localStorage.setItem('sideline.len', String(n)); } catch (e) { /* fine */ } render(); } }); })), h('p.note', { text: 'Possessions for each team. In a two phone game the host\u2019s choice is used.' }))),
       (function () {
         var g = savedGame(); if (!g) return null;
         return h('.card', h('h3', { text: 'Game in progress' }), h('p', { text: TEAM[0] + ' ' + g.S.score[0] + ', ' + TEAM[1] + ' ' + g.S.score[1] + '. Possession ' + Math.min(g.S.pos + 1, g.S.total) + ' of ' + g.S.total + (g.S.mode === 'host' ? '. Two phones, code ' + g.S.code + '.' : '. One phone.') }),
@@ -1699,7 +1701,7 @@
     return h('.pad',
       h('span.tag.t' + w, { text: S.ai != null ? (w === S.ai ? 'The computer wins' : 'You win') : TEAM[w] + ' wins' }),
       h('.big', { text: S.score[0] + ' - ' + S.score[1] }),
-      h('p.muted', { text: S.ot ? 'Decided in overtime.' : 'Final after 14 possessions.' }),
+      h('p.muted', { text: S.ot ? 'Decided in overtime.' : 'Final after ' + (S.base || 14) + ' possessions.' }),
       (function () {
         if (!S.box) return null; var best = -1, bv = -99; S.box.forEach(function (b, i) { var val = b[0] + 0.7 * b[1] + 0.7 * b[2] + b[5] - b[6] + (Math.floor(i / 5) === w ? 1.5 : 0); if (val > bv) { bv = val; best = i; } });
         var bb = S.box[best], pl2 = P(S.lineup[Math.floor(best / 5)][best % 5]), m = Math.abs(S.score[0] - S.score[1]);
