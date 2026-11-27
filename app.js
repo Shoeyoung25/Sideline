@@ -1519,7 +1519,7 @@
     if (holder < 0) { ballTrail.push([bx, by, bz]); if (ballTrail.length > 10) ballTrail.shift(); } else ballTrail.length = 0;
     for (i = 1; i < ballTrail.length; i++) { ctx.beginPath(); ctx.moveTo(X(ballTrail[i - 1][0]), Y(ballTrail[i - 1][1]) - ballTrail[i - 1][2] * s * 0.45); ctx.lineTo(X(ballTrail[i][0]), Y(ballTrail[i][1]) - ballTrail[i][2] * s * 0.45); ctx.strokeStyle = 'rgba(240,138,36,' + (0.08 + 0.5 * i / ballTrail.length) + ')'; ctx.lineWidth = Math.max(2, 0.5 * s * i / ballTrail.length); ctx.lineCap = 'round'; ctx.stroke(); }
     var gx = X(bx), gy = Y(by), br = Math.max(4 * dpr, 0.75 * s) * (1 + bz * 0.05);
-    if (holder >= 0) { gx += r * 0.8; gy += r * 0.8; }
+    if (holder >= 0) { var hx0 = v[5 + holder * 3] / 10, hy0 = v[6 + holder * 3] / 10, mvd = ui.lastH && ui.lastH[0] === holder ? Math.hypot(hx0 - ui.lastH[1], hy0 - ui.lastH[2]) : 0; ui.lastH = [holder, hx0, hy0]; ui.drb = (ui.drb || 0) + (mvd > 0.02 ? 0.33 : 0.12) * (S.slow ? 0.3 : 1); gx += r * 0.8; gy += r * 0.8 - Math.abs(Math.sin(ui.drb)) * r * 0.6; } // the dribble: quicker bounces on the move
     else { ctx.beginPath(); ctx.ellipse(gx, gy, br, br * 0.5, 0, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fill(); gy -= bz * s * 0.45; }
     ctx.beginPath(); ctx.arc(gx, gy, br, 0, Math.PI * 2); ctx.fillStyle = '#f08a24'; ctx.fill(); ctx.lineWidth = Math.max(1, dpr); ctx.strokeStyle = '#7a3d05'; ctx.stroke();
     var scEl = $('#shotclock'); if (scEl) { var sv = Math.max(0, Math.ceil(v[0] / 10)); if (scEl.textContent !== String(sv)) { scEl.textContent = sv; scEl.classList.toggle('low', sv <= 5); } }

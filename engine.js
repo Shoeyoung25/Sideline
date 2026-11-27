@@ -211,6 +211,7 @@
     var self = this, o = this.o, d = this.d, hp = hoop(this.offTeam);
     var ang = this.rand() * Math.PI * 2, rr = 2 + this.rand() * 5;
     var bx = clamp(hp.x + Math.cos(ang) * rr, 2, 48), by = hp.y + Math.abs(Math.sin(ang)) * rr * (this.offTeam === 0 ? -1 : 1);
+    if (this.ball.reb && this.ball.reb.x != null) { bx = this.ball.reb.x; by = this.ball.reb.y; }
     var tot = 0, w = [];
     this.P.forEach(function (p) {
       var dd = dist(p.x, p.y, bx, by), prox = 1 / (1 + Math.pow(dd / 5.5, 2));
@@ -831,7 +832,7 @@
         }
       }
       var dx = gx - p.x, dy = gy - p.y, l0 = Math.sqrt(dx * dx + dy * dy), ox = p.x, oy = p.y;
-      var lf = dist(p.x, p.y, p.tx, p.ty), want = l0 > 0.05 ? Math.min(v, Math.max(2.5, lf * 7)) : 0, ka = 1 - Math.exp(-dt / (p.team === this.offTeam ? 0.11 : 0.09));
+      var lf = dist(p.x, p.y, p.tx, p.ty), want = l0 > 0.05 ? Math.min(v, Math.max(2.5, lf * 7)) : 0, ka = 1 - Math.exp(-dt / ((p.team === this.offTeam ? 0.11 : 0.09) * clamp(1.25 - p.r.spd / 250 + ((p.r.wgt || 215) - 215) / 1200, 0.75, 1.35)));
       var wx = l0 > 0.05 ? dx / l0 * want : 0, wy = l0 > 0.05 ? dy / l0 * want : 0;
       p.cvx = (p.cvx || 0) + (wx - (p.cvx || 0)) * ka; p.cvy = (p.cvy || 0) + (wy - (p.cvy || 0)) * ka;
       var stp = Math.sqrt(p.cvx * p.cvx + p.cvy * p.cvy) * dt;
@@ -847,7 +848,8 @@
       var A = this.P[a2], B = this.P[b2], ddx = B.x - A.x, ddy = B.y - A.y, dd = Math.sqrt(ddx * ddx + ddy * ddy);
       if (dd >= 2.1 || dd < 0.001) continue;
       var push = (2.1 - dd) * 0.5, wa = A.scrUntil > t ? 0 : 1, wb = B.scrUntil > t ? 0 : 1; if (wa + wb === 0) continue;
-      var ux2 = ddx / dd, uy2 = ddy / dd; A.x -= ux2 * push * 2 * wa / (wa + wb); A.y -= uy2 * push * 2 * wa / (wa + wb); B.x += ux2 * push * 2 * wb / (wa + wb); B.y += uy2 * push * 2 * wb / (wa + wb);
+      var mA = (A.r.wgt || 215) * (1 + A.r.str / 200), mB = (B.r.wgt || 215) * (1 + B.r.str / 200), fa = wa * mB, fb = wb * mA, sA = fa / (fa + fb), sB = fb / (fa + fb);
+      var ux2 = ddx / dd, uy2 = ddy / dd; A.x -= ux2 * push * 2 * sA; A.y -= uy2 * push * 2 * sA; B.x += ux2 * push * 2 * sB; B.y += uy2 * push * 2 * sB;
     }
     for (i = 0; i < 10; i++) { p = this.P[i]; p.x = clamp(p.x, 0.8, 49.2); p.y = clamp(p.y, 0.8, 93.2); p.vx = (p.x - p.ox) / dt; p.vy = (p.y - p.oy) / dt; }
   };
@@ -858,7 +860,7 @@
       var u = clamp((t - f.t0) / f.dur, 0, 1);
       if (f.type === 'pass') { var T = this.P[f.to]; f.tx = T.x; f.ty = T.y; }
       if (f.type === 'lost' && f.by >= 0) { f.tx = this.P[f.by].x; f.ty = this.P[f.by].y; }
-      b.x = f.fx + (f.tx - f.fx) * u; b.y = f.fy + (f.ty - f.fy) * u; b.z = f.type === 'shot' ? Math.sin(u * Math.PI) * 9 + u * 3 : 1;
+      b.x = f.fx + (f.tx - f.fx) * u; b.y = f.fy + (f.ty - f.fy) * u; b.z = f.type === 'shot' ? Math.sin(u * Math.PI) * 9 + u * 3 : f.type === 'pass' ? 3 + Math.sin(u * Math.PI) * Math.min(6, dist(f.fx, f.fy, f.tx, f.ty) / 7) : 1;
       if (u >= 1) {
         if (f.type === 'lost') { this.turnover(f.txt, f.by >= 0 ? this.P[f.by] : null, f.label); }
         else if (f.type === 'pass') { b.fly = null; b.h = f.to; b.z = 0; this.P[f.to].dribbled = false; this.o.think = Math.max(this.o.think, 0.28); }
@@ -873,13 +875,16 @@
           } else {
             this.hot[sh.i] = 0;
             this.ev(f.blocked ? f.blocked + ' blocks ' + sh.name + '!' : sh.name + ' misses the ' + (f.pts === 3 ? 'three.' : f.label === 'jumper' ? 'jumper.' : 'shot ' + f.label + '.'), 'miss');
-            b.fly = null; b.reb = { at: t + 0.45 }; b.z = 2;
+            var hpR = hoop(this.offTeam), angR = this.rand() * Math.PI * 2, rrR = (f.pts === 3 ? 3.5 : 2) + this.rand() * 5, ox0 = f.blocked ? f.fx + (hpR.x - f.fx) * 0.25 : hpR.x, oy0 = f.blocked ? f.fy + (hpR.y - f.fy) * 0.25 : hpR.y;
+            var rbx = clamp(ox0 + Math.cos(angR) * rrR, 2, 48), rby = clamp(oy0 + Math.abs(Math.sin(angR)) * rrR * (this.offTeam === 0 ? -1 : 1) * (f.blocked && this.rand() < 0.5 ? -1 : 1), 1.5, 92.5), selfR = this;
+            b.fly = null; b.reb = { at: t + 0.72, t0: t, fx: ox0, fy: oy0, x: rbx, y: rby, z0: f.blocked ? 7 : 10 }; b.z = b.reb.z0;
+            this.P.forEach(function (q) { var isOff = q.team === selfR.offTeam, inIt = isOff ? selfR.o.crash[q.slot] : !selfR.d.leak[q.slot]; if (inIt) { q.tx = q.tx + (rbx - q.tx) * 0.7; q.ty = q.ty + (rby - q.ty) * 0.7; q.sp = 1; } });
           }
         }
       }
       return;
     }
-    if (b.reb) { if (t >= b.reb.at) this.resolveRebound(); return; }
+    if (b.reb) { if (b.reb.x != null) { var ur = clamp((t - b.reb.t0) / (b.reb.at - b.reb.t0), 0, 1); b.x = b.reb.fx + (b.reb.x - b.reb.fx) * ur; b.y = b.reb.fy + (b.reb.y - b.reb.fy) * ur; b.z = b.reb.z0 * (1 - ur) * (1 - ur) + Math.sin(ur * Math.PI) * 3.5 + 1; } if (t >= b.reb.at) this.resolveRebound(); return; }
     var H = this.holder();
     if (H) { b.x = H.x; b.y = H.y; b.z = 0; }
   };
