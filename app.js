@@ -29,7 +29,9 @@
   function plain(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
 
   // ---------- state ----------
-  function fresh() { return { build: window.SIDELINE_BUILD || '', phase: 'home', mode: 'local', code: '', picks: [[], []], lineup: [[], []], turn: 0, pos: 0, total: 10, off: 1, score: [0, 0], done: [false, false], log: [], guest: false, ot: false }; }
+  var PROTO = 4; // bump only when the two phones can no longer talk to each other
+  function uid() { return Math.random().toString(36).slice(2, 10); }
+  function fresh() { return { proto: PROTO, build: window.SIDELINE_BUILD || '', phase: 'home', mode: 'local', code: '', picks: [[], []], lineup: [[], []], turn: 0, pos: 0, total: 10, off: 1, score: [0, 0], done: [false, false], log: [], guest: false, ot: false }; }
   var S = fresh(), me = 0, auth = true, sim = null, pend = [null, null];
   var saved = { off: [null, null], def: [null, null] };
   var ui = { localStep: 0, sort: 'ovr', call: null, cool: [0, 0], built: '', fo: null, fd: null, err: '', sentPos: -1, tab: null };
@@ -116,7 +118,7 @@
   function savedGame() { try { var g = JSON.parse(localStorage.getItem('sideline.game') || 'null'); return g && g.S && Date.now() - g.t < 6 * 3600 * 1000 && Array.isArray(g.S.lineup) && g.S.lineup[0].length === 5 && g.S.lineup[1].length === 5 && (g.S.phase === 'coach' || g.S.phase === 'live') ? g : null; } catch (e) { return null; } }
   function resumeGame(g) {
     function go() {
-      var mode = g.S.mode, code = g.S.code; S = g.S; S.mode = mode; S.code = code; S.build = window.SIDELINE_BUILD || ''; S.guest = false; S.flash = null; auth = true; me = 0;
+      var mode = g.S.mode, code = g.S.code; S = g.S; S.mode = mode; S.code = code; S.build = window.SIDELINE_BUILD || ''; S.proto = PROTO; S.guest = false; S.flash = null; auth = true; me = 0;
       saved = g.saved && g.saved.off && g.saved.def ? g.saved : { off: [null, null], def: [null, null] };
       sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.score = S.score.slice();
       if (S.box && S.box.length === 10) sim.box = S.box.map(function (r) { return r.slice(); });
@@ -127,7 +129,7 @@
       if (!Net.room) { ui.err = 'Still connecting. Try Resume again in a moment.'; render(); return; }
       ui.err = 'Reopening the game room...'; render();
       Net.room.join('g-' + String(g.S.code).toLowerCase()).then(function (r) {
-        Net.r = r; ui.err = ''; Net.guestPeer = null; Net.seen = { pk: Date.now(), pl: Date.now(), lc: Date.now() };
+        Net.r = r; ui.err = ''; Net.guestPeer = null; Net.seen = {};
         r.presence({ h: Date.now() }).catch(noop); r.onPeers(onPeersHost); go();
       }).catch(function () { ui.err = 'Could not reopen the game room.'; render(); });
     } else go();
@@ -177,16 +179,16 @@
   }
 
   // intents: go straight to the game on this phone, or over the room to the host
-  function sendPick(coach, id) { if (auth) doPick(coach, id); else if (Net.r) Net.r.presence({ pk: { n: Date.now(), id: id } }).catch(noop); }
+  function sendPick(coach, id) { if (auth) doPick(coach, id); else if (Net.r) Net.r.presence({ pk: { u: uid(), id: id } }).catch(noop); }
   function sendPlan(coach, plan) {
     saved[coach === S.off ? 'off' : 'def'][coach] = clone(plan);
     if (!auth) { try { localStorage.setItem('sideline.saved', JSON.stringify({ code: S.code, saved: saved })); } catch (e) { /* fine */ } }
     if (auth) submitPlan(coach, plan);
-    else if (Net.r) { ui.sentPos = S.rd; ui.sentAt = Date.now(); setTimeout(render, 4300); Net.r.presence({ pl: { n: Date.now(), pos: S.pos, rd: S.rd, plan: plan } }).catch(noop); render(); }
+    else if (Net.r) { ui.sentPos = S.rd; ui.lastPlan = clone(plan); Net.r.presence({ pl: { u: uid(), pos: S.pos, rd: S.rd, plan: plan } }).catch(noop); render(); }
   }
   function sendCall(team, c) {
     if (auth) liveCall(team, c);
-    else if (Net.r) { if (Date.now() < ui.cool[team]) return; ui.cool[team] = Date.now() + COOLDOWN; Net.r.presence({ lc: { n: Date.now(), c: c } }).catch(noop); }
+    else if (Net.r) { if (Date.now() < ui.cool[team]) return; ui.cool[team] = Date.now() + COOLDOWN; Net.r.presence({ lc: { u: uid(), c: c } }).catch(noop); }
   }
   function noop() {}
 
@@ -200,21 +202,48 @@
     var db; try { if (!(fb.apps && fb.apps.length)) fb.initializeApp(FB); db = fb.database(); } catch (e) { return null; }
     var myId = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
     try { db.ref('.info/connected').on('value', function (sn) { var c = !!sn.val(); if (c !== ui.conn) { ui.conn = c; if (S.phase === 'lobby' || S.phase === 'joining' || S.phase === 'home') render(); } }); } catch (e) { /* status only */ }
+    var live = []; // rooms this phone is in, so a reconnect can put its data back
+    try { db.ref('.info/connected').on('value', function (sn) { if (sn.val()) live.forEach(function (r) { r.reassert(); }); }); } catch (e) { /* fine */ }
+    setInterval(function () { live.forEach(function (r) { r.beat(); }); }, 5000);
     return { join: function (name) {
-      var ref = db.ref('rooms/' + name), mine = ref.child(myId), last = {};
-      try { mine.onDisconnect().remove(); } catch (e) { /* best effort cleanup */ }
-      return Promise.resolve({
-        presence: function (patch) { var out = {}, k; for (k in patch) out[k] = patch[k] == null ? null : JSON.stringify(patch[k]); return Promise.resolve(mine.update(out)); },
+      // rooms/<name>/s/<phone>: state and intents, one string per key. rooms/<name>/f: the host's latest court frame.
+      var ref = db.ref('rooms/' + name), sref = ref.child('s'), mine = sref.child(myId), last = {}, cache = {}, pend = {}, busy = {}, fBusy = false, fNext = null, fLast = '';
+      function arm() { try { mine.onDisconnect().remove(); } catch (e) { /* best effort cleanup */ } }
+      // one write in flight per key. Anything newer replaces what is waiting, so a slow connection never builds a backlog.
+      function flush(k) {
+        if (busy[k] || !(k in pend)) return;
+        var v = pend[k], o = {}, tok = {}; delete pend[k]; busy[k] = tok; o[k] = v;
+        function done() { if (busy[k] === tok) { busy[k] = null; flush(k); } }
+        try { Promise.resolve(mine.update(o)).then(done, done); } catch (e) { done(); }
+        setTimeout(done, 4000);
+      }
+      function sendF() {
+        if (fBusy || fNext == null) return;
+        var v = fNext, tok = {}; fNext = null; fBusy = tok;
+        function done() { if (fBusy === tok) { fBusy = false; sendF(); } }
+        try { Promise.resolve(ref.update({ f: v })).then(done, done); } catch (e) { done(); }
+        setTimeout(done, 1500);
+      }
+      arm();
+      var room = {
+        presence: function (patch) { for (var k in patch) { var v = patch[k] == null ? null : JSON.stringify(patch[k]); cache[k] = v; pend[k] = v; flush(k); } return Promise.resolve(); },
+        frame: function (arr) { var v = arr.join(','); if (v === fLast) return; fLast = v; fNext = v; sendF(); },
+        onFrame: function (fn) { ref.child('f').on('value', function (sn) { var v = sn.val(); if (typeof v === 'string' && v) fn(v.split(',').map(Number)); }); },
+        // a dropped connection makes the server delete this phone's entry: put everything back when the link returns
+        reassert: function () { arm(); for (var k in cache) { if (cache[k] != null) { pend[k] = cache[k]; flush(k); } } },
+        beat: function () { ['h', 'q'].forEach(function (k) { if (cache[k] != null && !busy[k]) { pend[k] = cache[k]; flush(k); } }); },
         onPeers: function (fn) {
-          ref.on('value', function (sn) {
+          sref.on('value', function (sn) {
             var v = sn.val() || {}, peers = [], ids = {};
             Object.keys(v).forEach(function (id) { var pr = {}, rec = v[id] || {}; Object.keys(rec).forEach(function (k) { try { pr[k] = JSON.parse(rec[k]); } catch (e) { /* skip bad value */ } }); ids[id] = 1; peers.push({ peer: id, isMe: id === myId, presence: pr }); });
             var left = Object.keys(last).filter(function (id) { return !ids[id]; }).map(function (id) { return { peer: id }; }); last = ids;
             fn({ peers: peers, left: left });
           }, function () { ui.err = 'The game server refused the connection. Check the database rules.'; if (S.phase === 'joining' || S.phase === 'lobby') { S = fresh(); } render(); });
-          return function () { ref.off('value'); };
+          return function () { sref.off('value'); };
         }
-      });
+      };
+      live.length = 0; live.push(room);
+      return Promise.resolve(room);
     } };
   }
   function netInit() {
@@ -223,13 +252,14 @@
     window.claude.use('room').then(function (room) { if (room) { Net.room = room; if (S.phase === 'home') render(); } }).catch(noop);
     window.claude.use('sample').then(function (s) { Net.sample = s || null; }).catch(noop);
   }
+  function sendFrame() { if (!Net.r || !frameT) return; if (Net.r.frame) Net.r.frame(frameT); else Net.r.presence({ f: frameT }).catch(noop); }
   function pubState() { if (Net.r) { S.ts = Date.now(); Net.r.presence({ g: clone(S) }).catch(noop); } }
   function hostGame() {
     var code = '', abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; for (var i = 0; i < 4; i++) code += abc[Math.floor(Math.random() * abc.length)];
     ui.err = 'Opening a game room...'; render();
     Net.room.join('g-' + code.toLowerCase()).then(function (r) {
       Net.r = r; auth = true; me = 0; S = fresh(); S.mode = 'host'; S.code = code; S.phase = 'lobby'; ui.err = '';
-      Net.guestPeer = null; Net.seen = { pk: Date.now(), pl: Date.now(), lc: Date.now() };
+      Net.guestPeer = null; Net.seen = {};
       r.presence({ h: Date.now() }).catch(noop); r.onPeers(onPeersHost); changed();
     }).catch(function () { ui.err = 'Could not open a game room from this view. One phone mode still works.'; render(); });
   }
@@ -240,7 +270,7 @@
     Net.room.join('g-' + code.toLowerCase()).then(function (r) {
       Net.r = r; auth = false; me = 1; S = fresh(); S.mode = 'guest'; S.code = code;
       try { var sv = JSON.parse(localStorage.getItem('sideline.saved') || 'null'); saved = sv && sv.code === code && sv.saved && sv.saved.off && sv.saved.def ? sv.saved : { off: [null, null], def: [null, null] }; } catch (e) { /* fine */ } S.phase = 'joining'; ui.err = ''; Net.lastG = '';
-      r.presence({ q: Date.now() }).catch(noop); r.onPeers(onPeersGuest); try { localStorage.setItem('sideline.join', JSON.stringify({ code: code, t: Date.now() })); } catch (e) { /* fine */ } render();
+      r.presence({ q: Date.now() }).catch(noop); r.onPeers(onPeersGuest); if (r.onFrame) r.onFrame(onFrame); Net.buf = []; Net.off = null; Net.frameAt = 0; try { localStorage.setItem('sideline.join', JSON.stringify({ code: code, t: Date.now() })); } catch (e) { /* fine */ } render();
     }).catch(function () { ui.err = 'Could not join from this view.'; render(); });
   }
   function onPeersHost(ch) {
@@ -248,27 +278,40 @@
     (ch.left || []).forEach(function (p) { if (p.peer === Net.guestPeer) Net.guestPeer = null; });
     // the guest is whoever joined most recently, so a guest who refreshes gets straight back in
     ch.peers.forEach(function (p) { if (p.isMe || !p.presence || !p.presence.q) return; if (!g || p.presence.q > g.presence.q) g = p; });
-    if (g && g.peer !== Net.guestPeer) { Net.guestPeer = g.peer; Net.seen = { pk: Date.now(), pl: Date.now(), lc: Date.now() }; pubState(); }
+    if (g && g.peer !== Net.guestPeer) { var gp = g.presence; Net.guestPeer = g.peer; Net.seen = { pk: gp.pk && gp.pk.u, lc: gp.lc && gp.lc.u, pl: null }; pubState(); } // old picks and calls are not replayed; a plan is checked against the round below
     if (S.guest !== !!g) { S.guest = !!g; changed(); }
     if (!g) return;
     var pr = g.presence;
-    if (pr.pk && pr.pk.n > Net.seen.pk) { Net.seen.pk = pr.pk.n; doPick(1, +pr.pk.id); }
-    if (pr.pl && pr.pl.n > Net.seen.pl) { Net.seen.pl = pr.pl.n; if (pr.pl.pos === S.pos && pr.pl.rd === S.rd) submitPlan(1, clone(pr.pl.plan || {})); }
-    if (pr.lc && pr.lc.n > Net.seen.lc) { Net.seen.lc = pr.lc.n; liveCall(1, clone(pr.lc.c || {})); }
+    if (pr.pk && pr.pk.u !== Net.seen.pk) { Net.seen.pk = pr.pk.u; doPick(1, +pr.pk.id); }
+    if (pr.pl && pr.pl.u !== Net.seen.pl) { Net.seen.pl = pr.pl.u; if (pr.pl.pos === S.pos && pr.pl.rd === S.rd) submitPlan(1, clone(pr.pl.plan || {})); }
+    if (pr.lc && pr.lc.u !== Net.seen.lc) { Net.seen.lc = pr.lc.u; liveCall(1, clone(pr.lc.c || {})); }
   }
+  function onFrame(f) {
+    if (auth || !Array.isArray(f) || f.length < 54) return;
+    if (frameT && f.join() === frameT.join()) return;
+    var now = Date.now(), nowP = performance.now(), fb = Net.buf = Net.buf || [], ft = f[53] * 10;
+    if (Net.frameAt) { var gap = Math.min(1000, now - Net.frameAt); Net.gap = Net.gap == null ? gap : Net.gap * 0.85 + gap * 0.15; }
+    Net.frameAt = now;
+    if (fb.length && (ft < fb[fb.length - 1].t || ft - fb[fb.length - 1].t > 3000)) { fb.length = 0; Net.off = null; }
+    fb.push({ t: ft, f: f }); if (fb.length > 16) fb.shift();
+    Net.off = Net.off == null ? nowP - ft : Math.min(Net.off + 0.3, nowP - ft);
+    frameT = f;
+  }
+  // a guest keeps sending its plan until the host shows it as received, so one lost message cannot freeze the game
+  setInterval(function () { if (!auth && Net.r && S.phase === 'coach' && ui.sentPos === S.rd && !S.done[me] && ui.lastPlan) Net.r.presence({ pl: { u: uid(), pos: S.pos, rd: S.rd, plan: ui.lastPlan } }).catch(noop); }, 2000);
   function onPeersGuest(ch) {
     var host = null; ch.peers.forEach(function (p) { if (!p.isMe && p.presence && p.presence.h && (!host || p.presence.h > host.presence.h)) host = p; });
     if (!host) return;
     Net.hostSeen = Date.now();
     var pr = host.presence;
-    if (pr.f && Array.isArray(pr.f) && pr.f.length === 54) { if (!frameT || pr.f.join() !== frameT.join()) { Net.frameAt = Date.now(); var fb = Net.buf = Net.buf || [], ft = pr.f[53] * 10, nowP = performance.now(); if (fb.length && ft < fb[fb.length - 1].t) { fb.length = 0; Net.off = null; } fb.push({ t: ft, f: pr.f.slice() }); if (fb.length > 12) fb.shift(); Net.off = Net.off == null ? nowP - ft : Math.min(Net.off + 0.5, nowP - ft); } frameT = pr.f.slice(); }
+    if (pr.f && Array.isArray(pr.f)) onFrame(pr.f); // only the old in-app room sends frames this way
     if (pr.g) {
       var js = JSON.stringify(pr.g);
       if (js !== Net.lastG) {
         Net.lastG = js; var g = JSON.parse(js), was = S.phase + ':' + S.pos;
         if (!g || typeof g !== 'object' || !Array.isArray(g.picks) || !Array.isArray(g.lineup)) return;
-        if (g.build && window.SIDELINE_BUILD && g.build !== window.SIDELINE_BUILD) { // the two phones must run the same version
-          Net.lastG = ''; ui.err = 'The host phone is on a different version. Updating this phone, then ask the host to reopen the link.'; S = fresh(); auth = true; me = 0; render();
+        if (g.proto !== PROTO) { // only a real protocol change stops two phones playing together
+          Net.lastG = ''; ui.err = 'The two phones are on versions that cannot play together. Refresh the page on both phones, then host and join again.'; S = fresh(); auth = true; me = 0; render();
           if (window.sidelineLatest) window.sidelineLatest().then(function (v) { if (v !== window.SIDELINE_BUILD) window.sidelineReload(v); }).catch(noop);
           return;
         }
@@ -335,6 +378,7 @@
         h('.row', h('.grow', code), h('button.btn', { text: 'Join', onclick: function () { joinGame(code.value); } })))
         : h('p.note', { text: 'Two phone play appears here when this page can open a live room. One phone works everywhere: pass it between coaches.' }),
       ui.err ? h('.banner', { text: ui.err }) : null,
+      (function () { var e = null; try { e = JSON.parse(localStorage.getItem('sideline.err') || 'null'); } catch (x) { e = null; } if (!e || Date.now() - e.t > 24 * 3600 * 1000) return null; return h('p.note', { text: 'Last error on this phone (' + new Date(e.t).toLocaleTimeString() + ', version ' + e.b + '): ' + e.m + ' at ' + e.w + '. Send this line to get it fixed.' }); })(),
       h('p.note', { text: 'Players and ratings come from 2026-27 stats through Nov 26, 2026. ' + BB.players.length + ' players in the pool.' }),
       window.SIDELINE_BUILD && window.SIDELINE_BUILD.charAt(0) !== '_' ? h('p.note', { text: 'Version ' + window.SIDELINE_BUILD + '. Both phones should show the same one.' }) : null);
   }
@@ -409,7 +453,7 @@
       }
       return ui.localStep === 1 ? formOffense(offC) : formDefense(defC);
     }
-    if (S.done[me] || (ui.sentPos === S.rd && Date.now() - (ui.sentAt || 0) < 4000)) return h('.center', h('h2', { text: 'Locked in' }), h('p.muted', { text: 'Waiting for the ' + TEAM[1 - me] + ' coach.' }));
+    if (S.done[me] || ui.sentPos === S.rd) return h('.center', h('h2', { text: 'Locked in' }), h('p.muted', { text: 'Waiting for the ' + TEAM[1 - me] + ' coach.' }));
     return me === offC ? formOffense(me) : formDefense(me);
   }
 
@@ -1032,7 +1076,7 @@
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
     var f = frameT, i;
     if (!auth && Net.buf && Net.buf.length > 1 && Net.off != null) { // play the host's frames back on an even clock, a beat behind, blending between the two nearest
-      var want = performance.now() - Net.off - 140, B = Net.buf, j = B.length - 1;
+      var want = performance.now() - Net.off - Math.max(130, Math.min(450, (Net.gap || 90) * 1.6 + 50)), B = Net.buf, j = B.length - 1;
       while (j > 0 && B[j - 1].t > want) j--;
       var fa = B[Math.max(0, j - 1)], fbb = B[j], u = fbb.t > fa.t ? Math.max(0, Math.min(1, (want - fa.t) / (fbb.t - fa.t))) : 1;
       f = fbb.f.slice();
@@ -1091,16 +1135,22 @@
     document.querySelectorAll('.calls').forEach(function (row) { var cool = now < ui.cool[+row.getAttribute('data-team')]; row.querySelectorAll('button').forEach(function (b) { if (b.disabled !== cool) b.disabled = cool; }); });
   }
 
+  function noteErr(m, where) { try { localStorage.setItem('sideline.err', JSON.stringify({ t: Date.now(), m: String(m).slice(0, 160), w: String(where || '').slice(0, 60), b: window.SIDELINE_BUILD || '' })); } catch (e) { /* fine */ } }
+  window.addEventListener('error', function (e) { noteErr(e.message, (e.filename || '').split('/').pop().split('?')[0] + ':' + e.lineno + ':' + e.colno); });
+  window.addEventListener('unhandledrejection', function (e) { noteErr(e.reason && e.reason.message || e.reason, 'promise'); });
   function loop(ts) {
     requestAnimationFrame(loop);
+    try { loopBody(ts); } catch (err) { noteErr(err && err.message, 'loop ' + (err && err.stack ? String(err.stack).split('\n')[1] : '')); }
+  }
+  function loopBody(ts) {
     var raw = (ts - lastTs) / 1000 || 0, dt = Math.min(0.05, raw); lastTs = ts;
     if (S.phase !== 'live') return;
     if (raw < 0.5) { ui.slow = (ui.slow || 0) * 0.97 + (raw > 0.03 ? 1 : 0) * 0.03; if (ui.slow > 0.5 && !ui.lowRes) ui.lowRes = true; } // a struggling phone draws the court at lower resolution
-    if (auth && sim && startHold > 0) { startHold -= dt; if (startHold <= 0) { S.flash = null; if (S.mode === 'host') pubState(); updateLive(); } if (S.mode === 'host' && Net.r && ts - lastPub > 200) { lastPub = ts; Net.r.presence({ f: frameT }).catch(noop); } drawLive(); return; }
+    if (auth && sim && startHold > 0) { startHold -= dt; if (startHold <= 0) { S.flash = null; if (S.mode === 'host') pubState(); updateLive(); } if (S.mode === 'host' && Net.r && ts - lastPub > 200) { lastPub = ts; sendFrame(); } drawLive(); return; }
     if (auth && sim) {
       acc += dt * SPEED; var n = 0; liveFor += dt; // the walk up the floor plays a little faster
       try { while (acc >= 1 / 60 && n++ < 6) { sim.step(1 / 60); acc -= 1 / 60; } }
-      catch (err) { acc = 0; replayPossession('That possession hit an error and was restarted.'); return; }
+      catch (err) { acc = 0; noteErr(err && err.message, 'sim ' + (err && err.stack ? String(err.stack).split('\n')[1] : '')); replayPossession('That possession hit an error and was restarted.'); return; }
       if (liveFor > 70 && !sim.done) { replayPossession('That possession stalled and was restarted.'); return; }
       var fresh2 = false;
       while (evSeen < sim.events.length) { S.log.push(sim.events[evSeen].txt); evSeen++; fresh2 = true; }
@@ -1108,7 +1158,7 @@
       frameT = sim.frame();
       if (sim.score[0] !== S.score[0] || sim.score[1] !== S.score[1]) { S.score = sim.score.slice(); fresh2 = true; }
       if (fresh2) { if (S.mode === 'host') pubState(); renderHud(); updateLive(); }
-      if (S.mode === 'host' && Net.r && ts - lastPub > 70) { lastPub = ts; Net.r.presence({ f: frameT }).catch(noop); }
+      if (S.mode === 'host' && Net.r && ts - lastPub > 80) { lastPub = ts; sendFrame(); }
       if (sim.done && !S.flash) {
         var dn = sim.done, tx = dn.type === 'make' ? '+' + dn.pts + ' ' + TEAM[S.off] : dn.type === 'ft' ? (dn.pts ? '+' + dn.pts + ' ' + TEAM[S.off] : 'No points') : dn.type === 'to' ? (dn.label || 'Turnover') : 'Stop';
         S.flash = { txt: tx, team: dn.pts ? S.off : 1 - S.off, sub: lastLine() }; if (S.mode === 'host') pubState(); renderHud(); updateLive();
@@ -1149,7 +1199,7 @@
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') keepAwake(); });
   var BUILD = window.SIDELINE_BUILD || '';
   function checkUpdate() {
-    if (!window.sidelineLatest || (S.phase !== 'home' && S.phase !== 'final' && S.phase !== 'joining')) return;
+    if (!window.sidelineLatest || (S.phase !== 'home' && S.phase !== 'final' && S.phase !== 'joining' && S.phase !== 'lobby')) return;
     window.sidelineLatest().then(function (v) { if (v && BUILD && v !== BUILD) window.sidelineReload(v); }).catch(noop);
   }
   setInterval(checkUpdate, 45000);
