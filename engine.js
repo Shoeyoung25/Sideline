@@ -81,7 +81,7 @@
     // every possession starts with a sideline inbound in the half court
     var side = this.rand() < 0.5 ? -1 : 1, inb = -1, ib = 1e9, hpI = hoop(offTeam);
     for (i = 0; i < 5; i++) { if (i === hd) continue; var sc0 = Math.abs(setup[i][0] - side * 25) + Math.abs(setup[i][1] - 28) * 0.6; if (sc0 < ib) { ib = sc0; inb = i; } }
-    offs.forEach(function (q) { var sp = q.slot === inb ? [side * 25.9, 28] : setup[q.slot], w = h2w(offTeam, sp[0], sp[1]); q.x = q.tx = w.x; q.y = q.ty = w.y; q.cvx = q.cvy = 0; });
+    offs.forEach(function (q) { var sp = q.slot === inb ? [side * 25, 28] : setup[q.slot], w = h2w(offTeam, sp[0], sp[1]); q.x = q.tx = w.x; q.y = q.ty = w.y; q.cvx = q.cvy = 0; });
     var amap = (pdn.match && pdn.match.length === 5 ? pdn.match : [0, 1, 2, 3, 4]);
     this.defs().forEach(function (q) { var O = self.op(amap[q.slot] != null ? amap[q.slot] : q.slot) || self.op(q.slot), u = unit(O.x, O.y, hpI.x, hpI.y), gap = O.slot === inb ? 4.5 : 3.5; q.x = q.tx = clamp(O.x + u.x * gap, 2, 48); q.y = q.ty = O.y + u.y * gap; q.cvx = q.cvy = 0; });
     var ro = this.runout && this.runout.team === offTeam ? this.runout.lvl : 0; this.runout = null;
