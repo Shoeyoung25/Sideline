@@ -108,7 +108,7 @@
     changed();
   }
   function startMatch() {
-    S.score = [0, 0]; S.pos = 0; S.total = 14; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.tend = null; S.tos = [2, 2]; S.afterTO = 0; S.calls = [null, null]; S.clutch = false; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
+    S.score = [0, 0]; S.pos = 0; S.total = 14; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.seenP = [{}, {}]; S.ptr = [null, null]; S.tend = null; S.tos = [2, 2]; S.afterTO = 0; S.calls = [null, null]; S.clutch = false; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
@@ -147,6 +147,7 @@
       sim.lastShot = null; evStart = sim.events.length;
       var po = pend[S.off], ck = (po.plays.filter(Boolean)[0] || {}).name || 'style:' + po.style; S.calls = S.calls || [null, null];
       var lc = S.calls[S.off]; S.calls[S.off] = lc && lc.k === ck ? { k: ck, n: lc.n + 1 } : { k: ck, n: 1 }; po.read = Math.min(2, S.calls[S.off].n - 1);
+      var fp = po.plays.filter(Boolean)[0]; S.seenP = S.seenP || [{}, {}]; if (fp) { var sg = playSig(fp); po.fresh = !S.seenP[S.off][sg]; S.seenP[S.off][sg] = 1; }
       S.clutch = S.total - S.pos <= 4 && Math.abs(S.score[0] - S.score[1]) <= 4; sim.clutch = S.clutch;
       sim.startPossession(S.off, pend[S.off], pend[1 - S.off]);
       if (S.afterTO) { sim.sc = S.afterTO; S.afterTO = 0; }
@@ -157,6 +158,7 @@
     }
     changed();
   }
+  function playSig(p) { return p.beats.map(function (b) { return b.map(function (a) { return a.k + a.s + (a.to == null ? '' : a.to); }).sort().join(','); }).join('|'); }
   function styleName(list, id) { var x = list.filter(function (q) { return q.id === id; })[0]; return x ? x.name : id; }
   function descOff(p) { var pl = p.plays.filter(Boolean).map(function (q) { return q.name; }); return (pl.length ? pl.join(', then ') + ', then ' : '') + styleName(BB.OFF_STYLES, p.style).toLowerCase() + (p.focus != null ? ', through ' + names(S.off)[p.focus].tag : ''); }
   function descDef(p) { var z = p.style === 'zone'; return styleName(BB.DEF_STYLES, p.style) + (z ? '' : ', ' + (p.style === 'switch' ? 'switch' : p.cover) + ' on screens') + ', ' + { sag: 'sagging off', normal: 'normal pressure', tight: 'tight pressure' }[p.press] + ', ' + (p.help === 'help' ? 'helping on drives' : 'staying home') + (p.dbl != null ? ', doubling ' + names(S.off)[p.dbl].tag : '') + (p.leak && p.leak.length ? ', ' + p.leak.length + ' leaking out' : '') + (p.rules && p.rules.length ? '. Emphasis: ' + p.rules.map(function (r) { return ruleText(r, names(S.off)); }).join(' ') : ''); }
@@ -165,6 +167,8 @@
     S.tend = S.tend || [{ o: {}, d: {} }, { o: {}, d: {} }];
     var to1 = S.tend[S.off].o, td1 = S.tend[1 - S.off].d; to1[okk] = to1[okk] || { n: 0, pts: 0 }; to1[okk].n++; to1[okk].pts += got; td1[dkk] = td1[dkk] || { n: 0, pts: 0 }; td1[dkk].n++; td1[dkk].pts += got;
     S.score = sim.score.slice(); S.pos++; S.box = sim.box.map(function (r) { return r.slice(); });
+    if (!Array.isArray(S.ptr) || S.ptr.length !== 2 || (S.ptr[0] && !Array.isArray(S.ptr[0]) && S.ptr[0].name)) S.ptr = [null, null];
+    S.ptr[S.off] = (sim.trace || []).map(function (x) { return { name: x.name, n: x.n, ran: x.ran, why: x.why, at: x.at, shot: x.shot, done: x.done }; });
     S.plog = sim.events.slice(evStart).filter(function (x) { return x.kind !== 'i' || /breaks down/.test(x.txt); }).map(function (x) { return x.txt; }).slice(-7);
     var ls = sim.lastShot; S.look = null; S.hist = S.hist || [];
     if (ls) { var kind = { three: 'three', rim: 'shot at the rim', 'short': 'short shot', mid: 'mid-range jumper' }[ls.type], open = ls.d1 >= 6 ? 'Wide open' : ls.d1 >= 4 ? 'Open' : ls.d1 >= 2.5 ? 'Contested' : 'Heavily contested';
@@ -594,6 +598,15 @@
       own ? h('p.note', { text: (onOff ? 'You ran: ' : 'You played: ') + own + '.' }) : null,
       onOff && S.calls && S.calls[t] && S.calls[t].n >= 1 ? h('p.note' + (S.calls[t].n >= 2 ? '.warn' : ''), { text: 'Your last ' + (S.calls[t].n > 1 ? S.calls[t].n + ' calls were' : 'call was') + ' ' + S.calls[t].k.replace('style:', 'freelance ') + '. Call it again and the defense reads it ' + (S.calls[t].n >= 2 ? 'much ' : '') + 'faster: passes get covered and cutters get no head start.' }) : null);
   }
+  function fixFor(why) { return /covered/.test(why) ? 'Free that receiver first: screen for him in the step before, or add a second option on that step.' : /does not have the ball/.test(why) ? 'The ball was not where the step expected. Check who has it at the start of that step.' : /no shot/.test(why) ? 'He was smothered. End the play with a screen for the shooter, or give him a pass option.' : /handoff/.test(why) ? 'The two players were too far apart. Start them closer or bring the receiver to the ball.' : 'Add an option on that step so the ball handler has somewhere else to go.'; }
+  function playReport(t) {
+    var L = S.ptr && S.ptr.length === 2 ? S.ptr[t] : null; if (!L || !L.length) return null;
+    return h('.card.prep', h('h3', { text: 'Your play last time' }), L.map(function (x) {
+      var ok = x.shot || (x.done && !x.why);
+      return h('div', h('p', h('b' + (ok ? '.good' : '.bad'), { text: x.name + ': ' }), x.shot ? 'ran as drawn and got its shot, taken in rhythm.' : ok ? 'all ' + x.n + ' steps ran. The finish was left to the players.' : 'ran ' + Math.max(0, (x.at || 1) - 1) + ' of ' + x.n + ' steps, then broke at step ' + (x.at || 1) + ': ' + x.why + '.'),
+        ok ? null : h('p.note', { text: fixFor(x.why) }));
+    }));
+  }
   function lastResult() {
     if (!S.flash || S.flash.start) return h('.banner', { text: lastLine() });
     return h('div', h('.banner.res', h('b.t' + S.flash.team, { text: S.flash.txt }), h('span', { text: S.flash.sub || '' })),
@@ -639,6 +652,7 @@
       lastResult(),
       sitLine(),
       scoutCard(t, true),
+      playReport(t),
       sayCard(f, 'say', 'e.g. run horns, get Curry threes, be patient, Jokic and Tatum crash', function (txt) { return sayOffense(txt, f, pl, names(1 - t)); }),
       quickOff(f, t),
       tendCard(t, true),
@@ -1036,6 +1050,23 @@
       }
       ed.anim = requestAnimationFrame(frame);
     }
+    function testPlay(play, tm) { // run the drawing with the real players against three defenses, many times each
+      var p0 = cleanPlay(play); if (!p0) { ed.msg = 'Add at least one step first.'; return null; }
+      var teams = [S.lineup[0].map(P), S.lineup[1].map(P)], N = 30, out = [];
+      [['Man, drop', { style: 'man', cover: 'drop' }], ['Switch everything', { style: 'switch', cover: 'switch' }], ['2-3 zone', { style: 'zone', cover: 'drop' }]].forEach(function (D, di) {
+        var pts = 0, shot = 0, full = 0, why = {}, at = {};
+        for (var g = 0; g < N; g++) {
+          var sm = new E.Sim(teams, 7000 + di * 100 + g); sm.begin(tm);
+          sm.startPossession(tm, { style: 'motion', plays: [p0] }, { style: D[1].style, match: [0, 1, 2, 3, 4], cover: D[1].cover, press: 'normal', pp: {}, help: 'help' });
+          var b0 = sm.score[tm], guard = 0; while (!sm.done && guard++ < 2400) sm.step(1 / 60);
+          pts += sm.score[tm] - b0; var tr = sm.trace[0];
+          if (tr) { if (tr.shot) shot++; if (tr.shot || (tr.done && !tr.why)) full++; else if (tr.why) { var wk = tr.why.replace(/^the /, ''); why[wk] = (why[wk] || 0) + 1; at[wk] = tr.at; } }
+        }
+        var top = Object.keys(why).sort(function (a, b) { return why[b] - why[a]; })[0];
+        out.push({ name: D[0], ppp: pts / N, full: full, shot: shot, n: N, why: top || '', whyN: top ? why[top] : 0, at: top ? at[top] : 0 });
+      });
+      return out;
+    }
     function trimEmpty() { ed.p.beats = ed.p.beats.filter(function (b) { return b.length; }); if (ed.step > ed.p.beats.length) ed.step = ed.p.beats.length; }
     function build() {
       if (ed.anim) { cancelAnimationFrame(ed.anim); ed.anim = 0; }
@@ -1062,7 +1093,7 @@
       add(ov, [
         h('.ohead', h('h2', { text: 'Draw a play' }), h('button.btn.small', { text: 'Cancel', onclick: closeOverlay }),
           h('button.btn.small.primary', { text: 'Use play', onclick: function () {
-            trimEmpty(); carry(null); var out = cleanPlay(ed.p); if (!out) { ed.msg = 'Add at least one step before using the play.'; build(); return; }
+            trimEmpty(); carry(null); ed.test = null; var out = cleanPlay(ed.p); if (!out) { ed.msg = 'Add at least one step before using the play.'; build(); return; }
             out.group = undefined; var k = -1; custom.forEach(function (c, i) { if (c.name === out.name) k = i; }); if (k >= 0) custom[k] = out; else custom.push(out); if (custom.length > 24) custom.shift(); saveCustom();
             closeOverlay(); onSave(out);
           } })),
@@ -1071,9 +1102,14 @@
           h('.chips', steps),
           cv,
           h('.hint', (function () { var e = h('span'); var t = hint(); if (ed.msg || ed.concept) add(e, h('b', { text: t })); else e.textContent = t; return e; })()),
+          ed.test ? h('.card.testres', h('h3', { text: 'Test: ' + ed.test[0].n + ' tries against each defense' }), ed.test.map(function (x) {
+            return h('div', h('.trow', h('span.grow', { text: x.name }), h('b', { text: x.full + ' of ' + x.n + ' ran as drawn' }), h('span.pp' + (x.ppp >= 1.15 ? '.good' : ''), { text: x.ppp.toFixed(2) + ' pts' })),
+              x.whyN >= 5 ? h('p.note', { text: 'Broke ' + x.whyN + ' times at step ' + x.at + ': ' + x.why + '. ' + fixFor(x.why) }) : null);
+          }), h('p.note', { text: 'Points are per try with these ten players. Freelance offense scores about 1.15. A new play also gets a first-time edge in a real game that this test leaves out.' })) : null,
           h('.chips', tools),
           h('.row', h('.grow', csel),
             h('button.btn.small', { text: 'Preview', onclick: preview }),
+            h('button.btn.small.primary', { text: 'Test it', onclick: function () { trimEmpty(); carry(null); ed.test = testPlay(ed.p, team); build(); } }),
             h('button.btn.small', { text: 'Undo', onclick: function () { ed.msg = ''; ed.concept = null; var b = beat(); if (b && b.length) b.pop(); else if (ed.step > 0) { ed.p.beats.splice(ed.step - 1, 1); ed.step = Math.max(0, ed.step - 1); } carry(null); build(); } }),
             h('button.btn.small', { text: 'Clear', onclick: function () { ed.p.beats = []; ed.step = 0; ed.msg = ''; ed.concept = null; build(); } })),
           (function () {
