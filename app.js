@@ -53,6 +53,7 @@
     if (!p || !Array.isArray(p.setup) || p.setup.length !== 5 || !Array.isArray(p.beats)) return null;
     var out = { name: String(p.name || 'Play').slice(0, 28), group: p.group ? String(p.group).slice(0, 24) : undefined, note: p.note ? String(p.note).slice(0, 120) : undefined,
       setup: p.setup.map(function (q) { return [num(q && q[0], -24, 24), num(q && q[1], 1, 46)]; }), ball: slot(p.ball), beats: [] };
+    if (typeof p.sig === 'string' && p.sig.length < 600) out.sig = p.sig; // the look the defense recognises, kept when players trade places
     p.beats.slice(0, 12).forEach(function (b) {
       if (!Array.isArray(b)) return; var nb = [];
       b.slice(0, 6).forEach(function (a) {
@@ -149,7 +150,7 @@
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
-  function toCoach() { S.phase = 'coach'; S.rd = (S.rd || 0) + 1; S.done = [false, false]; pend = [null, null]; ui.localStep = 0; ui.fo = null; ui.fd = null; ui.call = null; ui.swap = null; ui.quick = null; ui.spotMsg = ''; saveGame(); aiCoach(); }
+  function toCoach() { S.phase = 'coach'; S.rd = (S.rd || 0) + 1; S.done = [false, false]; pend = [null, null]; ui.localStep = 0; ui.fo = null; ui.fd = null; ui.call = null; ui.swap = null; ui.pswap = null; ui.quick = null; ui.spotMsg = ''; saveGame(); aiCoach(); }
   // The game is saved on this phone at the start of every possession, so a refresh or a crash loses at most the possession in progress.
   function saveGame() { if (!auth) return; try { localStorage.setItem('sideline.game', JSON.stringify({ t: Date.now(), S: S, saved: saved })); } catch (e) { /* best effort */ } }
   function clearGame() { try { localStorage.removeItem('sideline.game'); } catch (e) { /* fine */ } }
@@ -204,7 +205,13 @@
     q.name = /\(flipped\)$/.test(q.name) ? q.name.replace(/ \(flipped\)$/, '') : q.name + ' (flipped)'; return q;
   }
   function playSide(p) { var sx = 0; p.beats.forEach(function (b) { b.forEach(function (a) { if (typeof a.x === 'number') sx += a.x; }); }); return sx < -3 ? 'L' : sx > 3 ? 'R' : 'M'; }
-  function playSig(p) { return playSide(p) + ':' + p.beats.map(function (b) { return b.map(function (a) { return a.k + a.s + (a.to == null ? '' : a.to); }).sort().join(','); }).join('|'); }
+  function swapSlots(p, a, b) { // two players trade roles in a play
+    var q = clone(p), m = function (x) { return x === a ? b : x === b ? a : x; }; if (!q.sig) q.sig = playSig(p);
+    var t0 = q.setup[a]; q.setup[a] = q.setup[b]; q.setup[b] = t0; q.ball = m(q.ball);
+    q.beats.forEach(function (bt) { bt.forEach(function (ac) { if (ac.s != null) ac.s = m(ac.s); if (ac.to != null) ac.to = m(ac.to); if (ac.list) ac.list.forEach(function (o) { if (o.to != null) o.to = m(o.to); }); }); });
+    return q;
+  }
+  function playSig(p) { if (p.sig) return p.sig; return playSide(p) + ':' + p.beats.map(function (b) { return b.map(function (a) { return a.k + a.s + (a.to == null ? '' : a.to); }).sort().join(','); }).join('|'); }
   function styleName(list, id) { var x = list.filter(function (q) { return q.id === id; })[0]; return x ? x.name : id; }
   function descOff(p) { var pl = p.plays.filter(Boolean).map(function (q) { return q.name; }); return (pl.length ? pl.join(', then ') + ', then ' : '') + styleName(BB.OFF_STYLES, p.style).toLowerCase() + (p.focus != null ? ', through ' + names(S.off)[p.focus].tag : ''); }
   function descDef(p) { var z = p.style === 'zone'; return (z && p.zname ? p.zname + ' zone' : styleName(BB.DEF_STYLES, p.style)) + (z ? '' : ', ' + (p.style === 'switch' ? 'switch' : p.cover) + ' on screens') + ', ' + { sag: 'sagging off', normal: 'normal pressure', tight: 'tight pressure' }[p.press] + ', ' + (p.help === 'help' ? 'helping on drives' : 'staying home') + (p.dbl != null ? ', doubling ' + names(S.off)[p.dbl].tag : '') + (p.leak && p.leak.length ? ', ' + p.leak.length + ' leaking out' : '') + (p.rules && p.rules.length ? '. Emphasis: ' + p.rules.map(function (r) { return ruleText(r, names(S.off)); }).join(' ') : ''); }
@@ -814,6 +821,13 @@
           var c2 = h('canvas', { width: 104, height: 98 }); drawDiagram(c2, q, { beat: -1 }); var sn = S.seenP && S.seenP[t] && S.seenP[t][playSig(q)];
           return h('button.thumb' + (p && p.name === q.name ? '.on' : ''), { onclick: function () { use(cleanPlay(q)); } }, c2, h('span', { text: q.name + (sn ? ' \u00b7 seen' : '') }));
         }))) : null,
+        p ? (function () { // who plays where in this play: tap two to trade places
+          var roles = {}; roles[p.ball] = 'ball'; p.beats.forEach(function (bt) { bt.forEach(function (ac) { if (ac.k === 'scr' && !roles[ac.s]) roles[ac.s] = 'screener'; if (ac.k === 'sh' && !roles[ac.s]) roles[ac.s] = 'shooter'; if ((ac.k === 'drv' || ac.k === 'lay') && !roles[ac.s]) roles[ac.s] = 'driver'; if (ac.k === 'mv' && !roles[ac.s]) roles[ac.s] = 'cutter'; if (ac.k === 'pass' && !roles[ac.to]) roles[ac.to] = 'receiver'; }); });
+          return h('div', h('h4', { text: 'Who plays where' }), h('.chips', pl.map(function (q, i) { return h('button.chip' + (ui.pswap === i ? '.on' : ''), { text: (i + 1) + ' ' + q.tag + (roles[i] ? ' \u00b7 ' + roles[i] : ''), onclick: function () {
+            if (ui.pswap == null || ui.pswap === i) ui.pswap = ui.pswap === i ? null : i; else { var a = ui.pswap; ui.pswap = null; f.plays = f.plays.map(function (pp) { var np = pp ? cleanPlay(swapSlots(pp, a, i)) : pp; return np || pp; }); }
+            render(); } }); })),
+            h('p.note', { text: ui.pswap != null ? 'Now tap the player to trade places with ' + pl[ui.pswap].tag + '.' : 'Tap two players to trade places in this play. The numbers on the diagram are your players.' }));
+        })() : null,
         playSlot(1));
     }
     var prev = saved.off[t];
