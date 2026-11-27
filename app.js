@@ -406,7 +406,7 @@
         } }) : null,
         ui.pingMsg && ui.pingMsg !== '...' ? h('p.note', { text: ui.pingMsg }) : null,
         (function () { var n = null; try { n = JSON.parse(localStorage.getItem('sideline.net') || 'null'); } catch (e) { n = null; } if (!n || Date.now() - n.t > 24 * 3600 * 1000) return null;
-          return h('p.note', { text: 'Last two phone game on this phone (' + n.role + ', version ' + n.b + '): ' + (n.role === 'guest' ? (n.n ? 'court updates every ' + Math.round(n.sum / n.n) + ' ms on average, longest wait ' + (n.max / 1000).toFixed(1) + ' s, ' + n.long + ' waits over 1 s' : 'no court updates received') : 'server round trip about ' + n.rtt + ' ms') + ', ' + Math.max(0, n.rec) + ' reconnects.' }); })(),
+          return h('p.note', { text: 'Last two phone game on this phone (' + n.role + ', version ' + n.b + '): ' + (n.role === 'guest' ? (n.n ? 'court updates every ' + Math.round(n.sum / n.n) + ' ms on average, longest wait ' + (n.max / 1000).toFixed(1) + ' s, ' + n.long + ' waits over 1 s, ' + (n.dry || 0) + ' stutters, running ' + (n.dl || 0) + ' ms behind' : 'no court updates received') : 'server round trip about ' + n.rtt + ' ms') + ', ' + Math.max(0, n.rec) + ' reconnects.' }); })(),
         h('.row', h('.grow', code), h('button.btn', { text: 'Join', onclick: function () { joinGame(code.value); } })))
         : h('p.note', { text: 'Two phone play appears here when this page can open a live room. One phone works everywhere: pass it between coaches.' }),
       ui.err ? h('.banner', { text: ui.err }) : null,
@@ -1138,7 +1138,11 @@
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
     var f = frameT, i;
     if (!auth && Net.buf && Net.buf.length > 1 && Net.off != null) { // play the host's frames back on an even clock, a beat behind, blending between the two nearest
-      var want = performance.now() - Net.off - Math.max(130, Math.min(450, (Net.gap || 90) * 1.6 + 50)), B = Net.buf, j = B.length - 1;
+      var B = Net.buf, j = B.length - 1; if (Net.delay == null) Net.delay = 220;
+      var want = performance.now() - Net.off - Net.delay;
+      // self-tuning buffer: every time playback catches up with the newest update, wait a little longer; otherwise creep back toward live
+      if (want > B[j].t) { if (!Net.dry) { Net.dry = true; Net.delay = Math.min(550, Net.delay + 25); if (Net.stat) Net.stat.dry = (Net.stat.dry || 0) + 1; } } else { Net.dry = false; Net.delay = Math.max(140, Net.delay - 0.12); }
+      if (Net.stat) { Net.stat.fr = (Net.stat.fr || 0) + 1; Net.stat.dl = Math.round(Net.delay); }
       while (j > 0 && B[j - 1].t > want) j--;
       var fa = B[Math.max(0, j - 1)], fbb = B[j], u = fbb.t > fa.t ? Math.max(0, Math.min(1, (want - fa.t) / (fbb.t - fa.t))) : 1;
       f = fbb.f.slice();
