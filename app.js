@@ -92,6 +92,7 @@
     var roles = {}; if (p.roles) [0, 1, 2, 3, 4].forEach(function (k) { if (p.roles[k] === 'home' || p.roles[k] === 'help') roles[k] = p.roles[k]; });
     return { style: oneOf(p.style, ['man', 'switch', 'zone', 'mix'], 'man'), match: m, cover: oneOf(p.cover, ['drop', 'switch', 'hedge', 'trap'], 'drop'),
       press: oneOf(p.press, ['sag', 'normal', 'tight'], 'normal'), pp: pp, help: oneOf(p.help, ['help', 'home'], 'help'), after: 'box', leak: Array.isArray(p.leak) ? p.leak.map(slot).filter(function (v, i, a) { return a.indexOf(v) === i; }).slice(0, 2) : [], roles: roles, dbl: p.dbl == null ? null : slot(p.dbl), rules: (Array.isArray(p.rules) ? p.rules : p.rule ? [p.rule] : []).map(cleanRule).filter(Boolean).slice(0, 4),
+      spots: (Array.isArray(p.spots) ? p.spots : []).filter(function (z) { return z && (z.k === 'steal' || z.k === 'wall' || z.k === 'trap') && isFinite(z.x) && isFinite(z.y); }).slice(0, 4).map(function (z) { return { k: z.k, x: Math.max(-24, Math.min(24, +z.x)), y: Math.max(1, Math.min(45, +z.y)) }; }),
       sit: p.sit && typeof p.sit.sig === 'string' && p.sit.sig.length < 600 ? { sig: p.sit.sig, take: oneOf(p.sit.take, ['pass', 'screen', 'shooter'], 'pass') } : null };
   }
 
@@ -122,7 +123,7 @@
     if (bk.length && Math.random() < 0.42) { var tot = bk.reduce(function (a, q) { return a + q.n; }, 0), roll = Math.random() * tot, pick = bk[0]; bk.some(function (q) { roll -= q.n; if (roll <= 0) { pick = q; return true; } return false; }); sit = { sig: pick.sig, take: rnd(['pass', 'screen', 'shooter']) }; }
     them.forEach(function (p, i) { if (p.r.three >= 90) pp[i] = 'tight'; else if (p.r.three < 66) pp[i] = 'sag'; if (p.r.ovr > them[best].r.ovr) best = i; });
     var st = rnd(['man', 'man', 'man', 'man', 'switch', 'zone', 'zone', 'mix']);
-    return { style: st, match: [0, 1, 2, 3, 4], cover: rnd(['drop', 'drop', 'hedge', 'switch', 'trap']), press: rnd(['normal', 'normal', 'tight', 'sag']), pp: pp, help: rnd(['help', 'help', 'home']), dbl: Math.random() < 0.15 ? best : null, roles: {}, leak: Math.random() < 0.15 ? [0] : [], rules: [], sit: sit };
+    return { style: st, match: [0, 1, 2, 3, 4], cover: rnd(['drop', 'drop', 'hedge', 'switch', 'trap']), press: rnd(['normal', 'normal', 'tight', 'sag']), pp: pp, help: rnd(['help', 'help', 'home']), dbl: Math.random() < 0.15 ? best : null, roles: {}, leak: Math.random() < 0.15 ? [0] : [], rules: [], spots: Math.random() < 0.35 ? [{ k: rnd(['steal', 'wall', 'trap']), x: rnd([-17, -8, 0, 8, 17]), y: rnd([8, 16, 24]) }] : [], sit: sit };
   }
   function tname(t) { return S.ai === t ? 'Computer' : TEAM[t]; }
   function aiCoach() { if (S.ai == null || S.phase !== 'coach' || S.done[S.ai]) return; var at = S.rd; setTimeout(function () { if (S.ai != null && S.phase === 'coach' && S.rd === at && !S.done[S.ai]) submitPlan(S.ai, aiPlan(S.ai)); }, 50); }
@@ -140,7 +141,7 @@
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
-  function toCoach() { S.phase = 'coach'; S.rd = (S.rd || 0) + 1; S.done = [false, false]; pend = [null, null]; ui.localStep = 0; ui.fo = null; ui.fd = null; ui.call = null; ui.swap = null; ui.quick = null; saveGame(); aiCoach(); }
+  function toCoach() { S.phase = 'coach'; S.rd = (S.rd || 0) + 1; S.done = [false, false]; pend = [null, null]; ui.localStep = 0; ui.fo = null; ui.fd = null; ui.call = null; ui.swap = null; ui.quick = null; ui.spotMsg = ''; saveGame(); aiCoach(); }
   // The game is saved on this phone at the start of every possession, so a refresh or a crash loses at most the possession in progress.
   function saveGame() { if (!auth) return; try { localStorage.setItem('sideline.game', JSON.stringify({ t: Date.now(), S: S, saved: saved })); } catch (e) { /* best effort */ } }
   function clearGame() { try { localStorage.removeItem('sideline.game'); } catch (e) { /* fine */ } }
@@ -624,6 +625,33 @@
       var x = T[k]; return h('.trow', h('span.grow', { text: k.replace('style:', 'Freelance ') }), h('b', { text: x.pts + ' pts ' + (onOff ? 'on ' : 'allowed in ') + x.n }), h('span.pp' + ((onOff ? x.pts / x.n >= 1.1 : x.pts / x.n <= 0.9) ? '.good' : ''), { text: (x.pts / x.n).toFixed(1) + ' per' }));
     }));
   }
+  var SPOT = { steal: ['Steal spot', '#f08a24', 'S'], wall: ['Fight for spot', '#18202e', 'W'], trap: ['Trap zone', '#d2382d', 'T'] };
+  function drawSpot(ctx, x, y, k, s, live) { // x, y in canvas pixels, s pixels per foot
+    var c = SPOT[k], rr = (k === 'trap' ? 6.5 : k === 'wall' ? 5.5 : 6) * s;
+    ctx.save(); ctx.globalAlpha = live ? 0.5 : 0.9; ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fillStyle = c[1]; ctx.globalAlpha *= 0.16; ctx.fill(); ctx.globalAlpha = live ? 0.55 : 0.95;
+    ctx.setLineDash(k === 'steal' ? [5, 4] : []); ctx.lineWidth = Math.max(1.5, s * 0.3); ctx.strokeStyle = c[1]; ctx.stroke(); ctx.setLineDash([]);
+    if (!live) { var br = Math.max(8, s * 1.9); ctx.beginPath(); ctx.arc(x, y, br, 0, Math.PI * 2); ctx.fillStyle = c[1]; ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '700 ' + Math.round(br * 1.3) + 'px "Barlow Condensed", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(c[2], x, y + 1); }
+    ctx.restore();
+  }
+  function defBoard(f, t) {
+    f.spots = f.spots || []; ui.spotTool = ui.spotTool || 'steal';
+    var bk = S.book && S.book[1 - t] ? S.book[1 - t] : [], under = f.sit ? bk.filter(function (q) { return q.sig === f.sit.sig; })[0] : bk[bk.length - 1];
+    var cv = h('canvas.big#defboard', { width: 500, height: 470 }), s = 10;
+    if (under) { drawDiagram(cv, under.p, { beat: -1 }); var c0 = cv.getContext('2d'); c0.fillStyle = 'rgba(220,174,116,.55)'; c0.fillRect(0, 0, 500, 470); }
+    else drawDiagram(cv, { setup: BB.FORM['5 out'], ball: 0, beats: [] }, { beat: -1, empty: true });
+    var ctx = cv.getContext('2d'); f.spots.forEach(function (z) { drawSpot(ctx, (z.x + 25) * s, z.y * s, z.k, s, false); });
+    cv.addEventListener('pointerdown', function (ev) {
+      var r = cv.getBoundingClientRect(), x = (ev.clientX - r.left) / r.width * 50 - 25, y = (ev.clientY - r.top) / r.height * 47, hit = -1;
+      f.spots.forEach(function (z, i) { if (Math.hypot(z.x - x, z.y - y) < 3.2) hit = i; });
+      if (hit >= 0) f.spots.splice(hit, 1); else if (f.spots.length < 4) f.spots.push({ k: ui.spotTool, x: Math.round(x * 2) / 2, y: Math.round(Math.max(1, Math.min(45, y)) * 2) / 2 }); else { ui.spotMsg = 'Four markers is the limit. Tap one to remove it.'; }
+      render();
+    });
+    return h('.card.board', h('h3', { text: 'Defensive board' }),
+      h('.chips', Object.keys(SPOT).map(function (k) { return h('button.chip' + (ui.spotTool === k ? '.on' : ''), { text: SPOT[k][0], onclick: function () { ui.spotTool = k; ui.spotMsg = ''; render(); } }); })),
+      cv,
+      h('p.note', { text: ui.spotMsg || { steal: 'Steal spot: tap where you expect a pass to be caught. A defender is waiting on any pass thrown there.', wall: 'Fight for spot: tap a place you refuse to give up. Cutters get no head start going there and shots from it are tougher.', trap: 'Trap zone: tap an area. Whenever the ball is there a second defender comes, and someone else is open.' }[ui.spotTool] }),
+      h('p.note', { text: (under ? 'Faint lines: ' + under.p.name + ', a play they have run. ' : '') + (f.spots.length ? f.spots.length + ' of 4 markers placed. Tap a marker to remove it. Each one thins your cover everywhere else a little.' : 'Up to 4 markers. Each one thins your cover everywhere else a little, so mark only what you expect.') }));
+  }
   function advToggle() { return h('button.btn.small.advbtn', { text: ui.adv ? 'Hide fine tuning' : 'Fine tuning: screens, help, doubles, rebounding', onclick: function () { ui.adv = !ui.adv; render(); } }); }
   function scoutCard(t, onOff) { // what the other bench showed the last time it was in this spot
     var sc = S.scout && S.scout[1 - t], mine = S.scout && S.scout[t], txt = sc && (onOff ? sc.def : sc.off), own = mine && (onOff ? mine.off : mine.def);
@@ -784,7 +812,7 @@
     }
     var cov = f.style === 'switch' ? 'switch' : f.cover, prevD = saved.def[t];
     function done(src) {
-      var plan = { style: src.style, match: src.match.slice(), cover: src.cover, press: src.press, pp: clone(src.pp || {}), help: src.help, after: src.after, roles: clone(src.roles || {}), leak: (src.leak || []).slice(), dbl: src.dbl == null ? null : src.dbl, rules: clone(src.rules || []), sit: src === f && f.sit ? { sig: f.sit.sig, take: f.sit.take } : null };
+      var plan = { style: src.style, match: src.match.slice(), cover: src.cover, press: src.press, pp: clone(src.pp || {}), help: src.help, after: src.after, roles: clone(src.roles || {}), leak: (src.leak || []).slice(), dbl: src.dbl == null ? null : src.dbl, rules: clone(src.rules || []), spots: clone(src.spots || []), sit: src === f && f.sit ? { sig: f.sit.sig, take: f.sit.take } : null };
       ui.fd = null; if (S.mode === 'local') ui.localStep = 0; sendPlan(t, plan);
     }
     return h('div', h('.pad',
@@ -807,6 +835,7 @@
               on ? h('p.note', { text: { pass: 'Defenders play the passing lanes of this play. The drawn passes get covered.', screen: 'Defenders are already moving before the screen arrives. Cutters get no head start.', shooter: 'Whoever the play is built to free gets no clean look.' }[f.sit.take] + ' If they run anything else, your defense is a step behind all possession.' }) : null));
           }));
       })(),
+      defBoard(f, t),
       quickDef(f),
       tendCard(t, false),
       h('.card', h('h3', { text: 'Scheme' }), chipRow(BB.DEF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note })),
@@ -1437,6 +1466,8 @@
       for (i = 0; i < 5; i++) { var di = defT * 5 + i, oi = S.off * 5 + v[35 + i]; ctx.beginPath(); ctx.moveTo(X(v[5 + di * 3] / 10), Y(v[6 + di * 3] / 10)); ctx.lineTo(X(v[5 + oi * 3] / 10), Y(v[6 + oi * 3] / 10)); ctx.stroke(); }
       ctx.restore();
     }
+    var dT = 1 - S.off, mySpots = S.mode === 'local' ? (S.ai == null || dT !== S.ai ? (pend[dT] || {}).spots : null) : me === dT ? (auth ? (pend[dT] || {}).spots : (saved.def[me] || {}).spots) : null;
+    if (mySpots) mySpots.forEach(function (z) { var w = E.h2w(S.off, z.x, z.y); drawSpot(ctx, X(w.x), Y(w.y), z.k, s, true); });
     drawRoutes(ctx, v, X, Y, s, dpr);
     // motion trails: where each player just came from, so cuts and drives read at a glance
     if (trail.length !== 10) { trail = []; for (i = 0; i < 10; i++) trail.push([]); }

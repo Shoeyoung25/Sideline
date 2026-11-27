@@ -109,6 +109,7 @@
       deny: {}, ppRule: {}, ruleSwitch: false, zs: zs, rules: (Array.isArray(pdn.rules) ? pdn.rules : pdn.rule ? [pdn.rule] : []).slice(0, 4), roles: pdn.roles || {}, dblOn: pdn.dbl == null ? -1 : pdn.dbl, leak: {}, nLeak: 0 };
     var dd0 = this.d; (Array.isArray(pdn.leak) ? pdn.leak : pdn.after === 'leak' ? [defs[0].slot] : []).slice(0, 2).forEach(function (sl) { if (sl >= 0 && sl < 5 && !dd0.leak[sl]) { dd0.leak[sl] = true; dd0.nLeak++; } });
     if (style !== pdn.style) this.d.shown = style;
+    this.d.spots = (Array.isArray(pdn.spots) ? pdn.spots : []).slice(0, 4).map(function (z) { var w = h2w(offTeam, z.x, z.y); return { k: z.k, x: w.x, y: w.y }; });
     if (po.hunt != null && po.hunt >= 0 && po.hunt < 5 && style !== 'zone') this.o.focus = assign[po.hunt]; // go at one defender: the ball goes to whoever he is guarding
   };
 
@@ -151,6 +152,8 @@
     }
     if (this.sc < 5) pm -= (99 - r.cmp) / 99 * 0.06; // rushed shots punish shaky players
     pm += 0.025 * Math.min(2, Math.max(0, ((this.hot || {})[p.i] || 0) - 1)); // a shooter who has made two straight is feeling it
+    var sp0 = this.d ? this.d.spots : null;
+    if (sp0 && sp0.length) { var inW = false; for (var wi = 0; wi < sp0.length; wi++) if (sp0[wi].k === 'wall' && dist(p.x, p.y, sp0[wi].x, sp0[wi].y) < 5.5) inW = true; pm += inW ? -0.07 : 0.012 * sp0.length; } // a spot the defense is fighting for is a bad place to shoot from; every marker thins the cover everywhere else
     if (this.o && this.o.read) pm -= 0.03 * this.o.read;
     if (this.o && this.o.fooled) pm += 0.075; // the defense guessed the wrong play and is leaning the wrong way // a call the defense has seen coming: every look is a little tougher
     if (this.clutch) pm += (r.cmp - 75) * 0.003; // late and close: composure shows
@@ -266,6 +269,8 @@
       if (near) risk += 0.005;
     });
     if (this.doubled(H)) risk += 0.04;
+    var sp = this.d ? this.d.spots : null; // a marked steal spot: a defender is waiting on any pass thrown there
+    if (sp) for (var si = 0; si < sp.length; si++) if (sp[si].k === 'steal' && dist(T.tx, T.ty, sp[si].x, sp[si].y) < 6 && dist(T.x, T.y, sp[si].x, sp[si].y) < 9) { risk += 0.12; break; }
     return clamp(risk, 0.005, 0.9);
   };
   Sim.prototype.pass = function (H, T) {
@@ -522,7 +527,7 @@
         w = h2w(off, a.x, a.y); p.tx = clamp(w.x, 1.5, 48.5); p.ty = clamp(w.y, 1.5, 92.5); p.sp = a.k === 'mv' ? 0.92 : 0.85; p.scrUntil = 0; p.scrPending = a.k === 'scr'; this.setPath(p, a.w || a.c);
         if (a.k === 'mv' && p !== H && dist(p.x, p.y, p.tx, p.ty) > 8) {
           var cg = this.guardOf(p), toRim = pd(p, hoop(off)) - dist(p.tx, p.ty, hoop(off).x, hoop(off).y) > 5;
-          if (cg && pd(cg, p) < 8) { var pr0 = this.d.ppRule[p.slot] || this.d.pp[p.slot] || this.d.press, late = 0.1 + (this.o.fooled ? 0.1 : 0) - (this.o.jumped === 'screen' && !this.o.gen ? 0.14 : 0) + (this.o.fresh && !this.o.gen ? 0.12 : 0) - 0.05 * (this.o.gen ? 0 : this.o.read) + (p.r.oiq - cg.r.diq) / 250 + (toRim && (this.d.deny[p.slot] || pr0 === 'tight') ? 0.22 : 0) - (pr0 === 'sag' && toRim ? 0.1 : 0); cg.reactUntil = this.t + clamp(late, 0.03, 0.5); }
+          if (cg && pd(cg, p) < 8) { var pr0 = this.d.ppRule[p.slot] || this.d.pp[p.slot] || this.d.press, late = (this.d.spots || []).some(function (z) { return z.k === 'wall' && dist(p.tx, p.ty, z.x, z.y) < 5; }) ? -0.2 : 0.1 + (this.o.fooled ? 0.1 : 0) - (this.o.jumped === 'screen' && !this.o.gen ? 0.14 : 0) + (this.o.fresh && !this.o.gen ? 0.12 : 0) - 0.05 * (this.o.gen ? 0 : this.o.read) + (p.r.oiq - cg.r.diq) / 250 + (toRim && (this.d.deny[p.slot] || pr0 === 'tight') ? 0.22 : 0) - (pr0 === 'sag' && toRim ? 0.1 : 0); cg.reactUntil = this.t + clamp(late, 0.03, 0.5); }
         }
         movers.push(p);
       }
@@ -668,6 +673,7 @@
     d.deny = {}; d.ppRule = {}; d.ruleSwitch = false; d.ruleDbl = -1;
     for (var dk in d.pp) if (d.pp[dk] === 'deny') d.deny[dk] = true;
     if (H && d.dblOn === H.slot) d.ruleDbl = H.slot;
+    if (H && d.spots) for (var ti = 0; ti < d.spots.length; ti++) if (d.spots[ti].k === 'trap' && dist(H.x, H.y, d.spots[ti].x, d.spots[ti].y) < 6.5) d.ruleDbl = H.slot; // the ball walked into a marked trap zone
     for (var ri = 0; ri < d.rules.length; ri++) this.applyOne(H, d.rules[ri]);
   };
   Sim.prototype.applyOne = function (H, r) {
