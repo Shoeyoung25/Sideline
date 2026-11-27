@@ -82,7 +82,7 @@
   function cleanOff(p) {
     p = p || {};
     return { style: oneOf(p.style, ['motion', 'pnr', 'iso', 'post', 'dnk'], 'motion'), tempo: oneOf(p.tempo, ['push', 'set'], 'set'), focus: p.focus == null ? null : slot(p.focus),
-      after: 'crash', crash: Array.isArray(p.crash) ? p.crash.map(slot).filter(function (v, i, a) { return a.indexOf(v) === i; }) : null, plays: [cleanPlay((p.plays || [])[0]), cleanPlay((p.plays || [])[1])] };
+      sel: oneOf(p.sel, ['bal', 'three', 'paint'], 'bal'), pace: oneOf(p.pace, ['normal', 'quick', 'patient'], 'normal'), hunt: p.hunt == null ? null : slot(p.hunt), after: 'crash', crash: Array.isArray(p.crash) ? p.crash.map(slot).filter(function (v, i, a) { return a.indexOf(v) === i; }) : null, plays: [cleanPlay((p.plays || [])[0]), cleanPlay((p.plays || [])[1])] };
   }
   function cleanDef(p) {
     p = p || {};
@@ -91,7 +91,7 @@
     var pp = {}; if (p.pp) [0, 1, 2, 3, 4].forEach(function (k) { if (p.pp[k] === 'sag' || p.pp[k] === 'tight' || p.pp[k] === 'deny') pp[k] = p.pp[k]; });
     var roles = {}; if (p.roles) [0, 1, 2, 3, 4].forEach(function (k) { if (p.roles[k] === 'home' || p.roles[k] === 'help') roles[k] = p.roles[k]; });
     return { style: oneOf(p.style, ['man', 'switch', 'zone', 'mix'], 'man'), match: m, cover: oneOf(p.cover, ['drop', 'switch', 'hedge', 'trap'], 'drop'),
-      press: oneOf(p.press, ['sag', 'normal', 'tight'], 'normal'), pp: pp, help: oneOf(p.help, ['help', 'home'], 'help'), after: 'box', leak: Array.isArray(p.leak) ? p.leak.map(slot).filter(function (v, i, a) { return a.indexOf(v) === i; }).slice(0, 2) : [], roles: roles, dbl: p.dbl == null ? null : slot(p.dbl), rule: cleanRule(p.rule) };
+      press: oneOf(p.press, ['sag', 'normal', 'tight'], 'normal'), pp: pp, help: oneOf(p.help, ['help', 'home'], 'help'), after: 'box', leak: Array.isArray(p.leak) ? p.leak.map(slot).filter(function (v, i, a) { return a.indexOf(v) === i; }).slice(0, 2) : [], roles: roles, dbl: p.dbl == null ? null : slot(p.dbl), rules: (Array.isArray(p.rules) ? p.rules : p.rule ? [p.rule] : []).map(cleanRule).filter(Boolean).slice(0, 4) };
   }
 
   // ---------- game flow (runs on the one phone, or on the host) ----------
@@ -108,7 +108,7 @@
     changed();
   }
   function startMatch() {
-    S.score = [0, 0]; S.pos = 0; S.total = 14; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.calls = [null, null]; S.clutch = false; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
+    S.score = [0, 0]; S.pos = 0; S.total = 14; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.tend = null; S.tos = [2, 2]; S.afterTO = 0; S.calls = [null, null]; S.clutch = false; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
@@ -149,6 +149,7 @@
       var lc = S.calls[S.off]; S.calls[S.off] = lc && lc.k === ck ? { k: ck, n: lc.n + 1 } : { k: ck, n: 1 }; po.read = Math.min(2, S.calls[S.off].n - 1);
       S.clutch = S.total - S.pos <= 4 && Math.abs(S.score[0] - S.score[1]) <= 4; sim.clutch = S.clutch;
       sim.startPossession(S.off, pend[S.off], pend[1 - S.off]);
+      if (S.afterTO) { sim.sc = S.afterTO; S.afterTO = 0; }
       S.now = { off: descOff(pend[S.off]), def: descDef(pend[1 - S.off]), n: pend[S.off].plays.filter(Boolean).map(function (q) { return q.beats.length; }), nm: pend[S.off].plays.filter(Boolean).map(function (q) { return q.name; }), st: styleName(BB.OFF_STYLES, pend[S.off].style) };
       var look = { man: 'man to man', 'switch': 'man to man, switching everything', zone: 'a 2-3 zone' }[sim.d.style];
       sim.ev(TEAM[1 - S.off] + ' is in ' + look + '.', 'i');
@@ -158,8 +159,11 @@
   }
   function styleName(list, id) { var x = list.filter(function (q) { return q.id === id; })[0]; return x ? x.name : id; }
   function descOff(p) { var pl = p.plays.filter(Boolean).map(function (q) { return q.name; }); return (pl.length ? pl.join(', then ') + ', then ' : '') + styleName(BB.OFF_STYLES, p.style).toLowerCase() + (p.focus != null ? ', through ' + names(S.off)[p.focus].tag : ''); }
-  function descDef(p) { var z = p.style === 'zone'; return styleName(BB.DEF_STYLES, p.style) + (z ? '' : ', ' + (p.style === 'switch' ? 'switch' : p.cover) + ' on screens') + ', ' + { sag: 'sagging off', normal: 'normal pressure', tight: 'tight pressure' }[p.press] + ', ' + (p.help === 'help' ? 'helping on drives' : 'staying home') + (p.dbl != null ? ', doubling ' + names(S.off)[p.dbl].tag : '') + (p.leak && p.leak.length ? ', ' + p.leak.length + ' leaking out' : '') + (p.rule ? '. Emphasis: ' + ruleText(p.rule, names(S.off)) : ''); }
+  function descDef(p) { var z = p.style === 'zone'; return styleName(BB.DEF_STYLES, p.style) + (z ? '' : ', ' + (p.style === 'switch' ? 'switch' : p.cover) + ' on screens') + ', ' + { sag: 'sagging off', normal: 'normal pressure', tight: 'tight pressure' }[p.press] + ', ' + (p.help === 'help' ? 'helping on drives' : 'staying home') + (p.dbl != null ? ', doubling ' + names(S.off)[p.dbl].tag : '') + (p.leak && p.leak.length ? ', ' + p.leak.length + ' leaking out' : '') + (p.rules && p.rules.length ? '. Emphasis: ' + p.rules.map(function (r) { return ruleText(r, names(S.off)); }).join(' ') : ''); }
   function endPossession() {
+    var got = sim.score[S.off] - S.score[S.off], dp = pend[1 - S.off] || {}, okk = S.calls && S.calls[S.off] ? S.calls[S.off].k : 'call', dkk = styleName(BB.DEF_STYLES, dp.style || 'man') + (dp.style === 'zone' ? '' : ', ' + (dp.cover || 'drop')) + ', ' + (dp.press || 'normal');
+    S.tend = S.tend || [{ o: {}, d: {} }, { o: {}, d: {} }];
+    var to1 = S.tend[S.off].o, td1 = S.tend[1 - S.off].d; to1[okk] = to1[okk] || { n: 0, pts: 0 }; to1[okk].n++; to1[okk].pts += got; td1[dkk] = td1[dkk] || { n: 0, pts: 0 }; td1[dkk].n++; td1[dkk].pts += got;
     S.score = sim.score.slice(); S.pos++; S.box = sim.box.map(function (r) { return r.slice(); });
     S.plog = sim.events.slice(evStart).filter(function (x) { return x.kind !== 'i' || /breaks down/.test(x.txt); }).map(function (x) { return x.txt; }).slice(-7);
     var ls = sim.lastShot; S.look = null; S.hist = S.hist || [];
@@ -182,6 +186,12 @@
   function liveCall(team, c) {
     if (S.phase !== 'live' || !sim || !c) return;
     if (c.k === 'arm') { armSlow(team); return; }
+    if (c.k === 'timeout') { // stop the possession: both coaches set up again, the shot clock keeps what was left
+      S.tos = S.tos || [2, 2]; if (S.tos[team] <= 0 || sim.done || startHold > 0 || (sim.ball.fly && sim.ball.fly.type === 'shot') || sim.ball.reb) return;
+      S.tos[team]--; S.afterTO = Math.max(8, Math.ceil(sim.sc)); sim.finish('to', 0, true); sim.score = S.score.slice(); S.flash = null; S.slow = null; slowUntil = 0;
+      S.log.push('Timeout, ' + TEAM[team] + '. ' + S.tos[team] + ' left. Both coaches set up again with ' + S.afterTO + ' on the shot clock.'); if (S.log.length > 6) S.log = S.log.slice(-6);
+      evSeen = sim.events.length; sim.begin(S.off); if (S.calls && S.calls[S.off] && S.calls[S.off].n > 0) S.calls[S.off].n--; toCoach(); changed(); return;
+    }
     var now = Date.now(); if (now < ui.cool[team]) return;
     var k = c.k, ok = false, s5 = function (v) { return v === 0 || v === 1 || v === 2 || v === 3 || v === 4; };
     if (team === S.off) ok = k === 'off' || (k === 'pnr' && s5(c.a) && s5(c.b)) || (k === 'cut' && s5(c.s));
@@ -490,6 +500,91 @@
       return h('button.chip' + (ui.quick === 'd' + q[0] ? '.on' : ''), { text: q[0], onclick: function () { f.style = q[1]; f.cover = q[2]; f.press = q[3]; f.help = q[4]; ui.quick = 'd' + q[0]; render(); } });
     })), h('p.note', { text: 'One tap sets the scheme below. Your matchups stay as they are.' }));
   }
+  function findIn(t, list, own) { // which players a sentence names, in the order they appear
+    var out = [];
+    list.forEach(function (p, i) {
+      var c = [plain(p.last || ''), plain(p.tag || ''), plain(p.name.split(' ')[0])].filter(function (x, k, a) { return x.length > 2 && a.indexOf(x) === k; }), at = -1;
+      c.forEach(function (x) { var k = t.indexOf(x); if (k >= 0 && (at < 0 || k < at)) at = k; });
+      var m = t.match(own ? new RegExp('\\b(?:my|our) (?:number |#)?' + (i + 1) + '\\b') : new RegExp('\\b(?:their|his|the|number|no\\.?) ?#?' + (i + 1) + '\\b|#' + (i + 1) + '\\b'));
+      if (m && (at < 0 || m.index < at)) at = m.index;
+      if (at >= 0) out.push({ i: i, at: at });
+    });
+    return out.sort(function (a, b) { return a.at - b.at; });
+  }
+  function clauses(text) { return plain(text).replace(/[“”"]/g, '').split(/[.;\n!]|,|\bthen\b|\balso\b|\bbut\b|\band (?=(?:deny|double|sag|trap|switch|put|have|box|leak|crash|run|give|get|attack|go at|stay|pressure|hedge|drop|zone|man|be|hunt|let|play|pack|keep|don.?t|face|leave|dare|help|make|work|push|feed|post|shoot|take)\b)/).map(function (c) { return c.trim(); }).filter(function (c) { return c.length > 2; }); }
+  function sayOffense(text, f, pl, opp) {
+    var ok = [], miss = [], all = custom.concat(BB.PLAYS).slice().sort(function (a, b) { return b.name.length - a.name.length; });
+    clauses(text).forEach(function (c) {
+      var mine = findIn(c, pl, true), them = findIn(c, opp, false), hit = false, n0 = ok.length;
+      var pp = all.filter(function (p) { return c.indexOf(plain(p.name)) >= 0; })[0];
+      if (pp) { var sl = f.plays[0] && /backup|second|if (it|that) (fails|breaks)|otherwise/.test(c) ? 1 : 0; f.plays[sl] = cleanPlay(pp); ok.push((sl ? 'Backup play: ' : 'Run ') + pp.name); hit = true; }
+      else if (/pick and roll|pick & roll|pick n roll|\bpnr\b|ball screen|screen and roll|high screen/.test(c)) { f.style = 'pnr'; ok.push('Freelance: pick and roll'); hit = true; }
+      else if (/\biso|isolat|clear out|one on one|1 on 1|let .* (cook|work|go to work)|get out of (his|the) way/.test(c)) { f.style = 'iso'; ok.push('Freelance: isolation'); hit = true; }
+      else if (/post|on the block|back (him|them) down|down low|low block/.test(c)) { f.style = 'post'; ok.push('Freelance: post up'); hit = true; }
+      else if (/drive and kick|kick ?out|penetrat|drive and dish/.test(c)) { f.style = 'dnk'; ok.push('Freelance: drive and kick'); hit = true; }
+      else if (/motion|move the ball|ball movement|swing|share the ball|extra pass/.test(c)) { f.style = 'motion'; ok.push('Freelance: motion'); hit = true; }
+      if (/attack|go at|hunt|pick on|target|expose|mismatch|go after/.test(c) && them.length) { f.hunt = them[0].i; ok.push('Go at ' + opp[them[0].i].tag + ': the ball goes to whoever he guards'); hit = true; }
+      else if (mine.length && (hit || /through|give|get .* (the ball|it|touches|shots|looks)|in .* hands|feed|run it for|for |find |look for|ball to/.test(c)) && !/crash|rebound|glass|boards/.test(c)) { f.focus = mine[0].i; f.hunt = null; ok.push('Run it through ' + pl[mine[0].i].tag); hit = true; }
+      if (/three|3s|\b3\b|from deep|outside|perimeter|let it fly|bomb/.test(c)) { f.sel = 'three'; ok.push('Shot selection: hunt threes'); hit = true; }
+      else if (/paint|\brim\b|inside|layup|downhill|to the (basket|hoop|cup)|attack the (basket|hoop)|\bdrive\b/.test(c) && !/kick/.test(c)) { f.sel = 'paint'; ok.push('Shot selection: attack the paint'); hit = true; }
+      if (/quick|early|fast|first (good|open)|push|before they/.test(c)) { f.pace = 'quick'; ok.push('Pace: quick shot'); hit = true; }
+      else if (/patient|slow|work the clock|use the clock|run (the |some |down the )?clock|milk|best shot|good shot|great shot|be smart/.test(c)) { f.pace = 'patient'; ok.push('Pace: work for a great shot'); hit = true; }
+      if (/get back|nobody crash|no one crash|don.?t crash|no crash/.test(c) && !/^(the )?(rest|others|everyone else|everybody else)/.test(c)) { f.crash = []; ok.push('Rebounding: everyone gets back'); hit = true; }
+      else if (/crash|offensive (glass|board|rebound)|hit the (glass|boards)|second chance/.test(c)) {
+        f.crash = /everyone|everybody|all (five|5|of)/.test(c) ? [0, 1, 2, 3, 4] : mine.length ? mine.map(function (m) { return m.i; }) : pl.map(function (p, i) { return i; }).sort(function (a, b) { return pl[b].r.reb - pl[a].r.reb; }).slice(0, 4);
+        ok.push('Crash the glass: ' + (f.crash.length === 5 ? 'everyone' : f.crash.map(function (i) { return pl[i].tag; }).join(', '))); hit = true;
+      }
+      if (!hit && /^(the )?(rest|others|everyone else|everybody else).*(get back|stay back)/.test(c)) { ok.push('Everyone else gets back'); hit = true; }
+      if (!hit && ok.length === n0) miss.push(c);
+    });
+    return { ok: ok, miss: miss };
+  }
+  function sayDefense(text, f, mineL, opp) {
+    var ok = [], miss = []; f.rules = f.rules || []; f.roles = f.roles || {}; f.leak = f.leak || [];
+    clauses(text).forEach(function (c) {
+      var mine = findIn(c, mineL, true), them = findIn(c, opp, false), n0 = ok.length, o0 = them.length ? them[0].i : null;
+      if (/\b(when|if|whenever|every time|any time|once)\b|on (a|the|any|every) (ball )?(screen|pick)|on (the |a |his )?(drive|drives|catch|post)/.test(c)) {
+        var r = parseRule(c, opp); if (r) { if (f.rules.length >= 4) f.rules.shift(); f.rules.push(r); ok.push(ruleText(r, opp)); return; }
+      }
+      if (mine.length && o0 != null && /\bon\b|guard|take|cover|check|defend|stick|match|shadow/.test(c)) {
+        var j = mine[0].i, k = f.match.indexOf(o0); if (k >= 0) f.match[k] = f.match[j]; f.match[j] = o0; ok.push(mineL[j].tag + ' guards ' + opp[o0].tag);
+      }
+      if (/don.?t double|no double|stop doubling/.test(c)) { f.dbl = null; ok.push('No standing double team'); }
+      else if (/double|two on|send two|second defender/.test(c) && o0 != null) { f.dbl = o0; ok.push('Double ' + opp[o0].tag + ' whenever he has the ball'); }
+      if (o0 != null && /deny|keep (it|the ball) (away|out)|don.?t let .* (catch|touch|get|have)|face ?guard|front him|no touches/.test(c)) { them.forEach(function (x) { f.pp[x.i] = 'deny'; }); ok.push('Deny the ball: ' + them.map(function (x) { return opp[x.i].tag; }).join(', ')); }
+      else if (/sag|back off|leave .* open|dare|let .* shoot|go under|play off|give .* (room|space)/.test(c)) { if (o0 != null) { them.forEach(function (x) { f.pp[x.i] = 'sag'; }); ok.push('Sag off ' + them.map(function (x) { return opp[x.i].tag; }).join(', ')); } else { f.press = 'sag'; ok.push('Team pressure: sag off'); } }
+      else if (/tight|pressure|press up|crowd|pick .* up|get into|up on|in his (jersey|shirt|face)|no (air|space)|chase/.test(c)) { if (o0 != null) { them.forEach(function (x) { f.pp[x.i] = 'tight'; }); ok.push('Tight on ' + them.map(function (x) { return opp[x.i].tag; }).join(', ')); } else { f.press = 'tight'; ok.push('Team pressure: tight'); } }
+      if (/pack the paint|protect the (paint|rim)|wall up|clog/.test(c)) { f.press = 'sag'; f.help = 'help'; ok.push('Pack the paint: sag off and help'); }
+      if (/zone|2-3|2 3/.test(c)) { f.style = 'zone'; ok.push('Scheme: 2-3 zone'); }
+      else if (/switch (everything|all|it all|1 through 5|one through five)/.test(c)) { f.style = 'switch'; ok.push('Scheme: switch everything'); }
+      else if (/mix it up|change it up|disguise|keep them guessing/.test(c)) { f.style = 'mix'; ok.push('Scheme: mix it up'); }
+      else if (/man to man|\bman\b/.test(c) && !mine.length) { f.style = 'man'; ok.push('Scheme: man to man'); }
+      if (/\bdrop\b/.test(c)) { f.cover = 'drop'; ok.push('Ball screens: drop'); }
+      else if (/hedge|show hard|show on/.test(c)) { f.cover = 'hedge'; ok.push('Ball screens: hedge'); }
+      else if (/trap|blitz/.test(c) && o0 == null) { f.cover = 'trap'; ok.push('Ball screens: trap'); }
+      else if (/switch/.test(c) && /screen|pick/.test(c)) { f.cover = 'switch'; ok.push('Ball screens: switch'); }
+      if (/no help|stays? home|stays? with|don.?t help|stay attached|no leaving|stay on (your|his|shooters)/.test(c)) { if (mine.length) { mine.forEach(function (x) { f.roles[x.i] = 'home'; }); ok.push('Stays home: ' + mine.map(function (x) { return mineL[x.i].tag; }).join(', ')); } else { f.help = 'home'; ok.push('Help: stay home'); } }
+      else if (/\bhelp|roam|free safety|rim protect|collapse|load up|sink/.test(c)) { if (mine.length && o0 == null) { mine.forEach(function (x) { f.roles[x.i] = 'help'; }); ok.push('Helper: ' + mine.map(function (x) { return mineL[x.i].tag; }).join(', ')); } else if (ok.length === n0) { f.help = 'help'; ok.push('Help on drives'); } }
+      if (/box out|everyone rebound|everybody rebound|all five rebound|no leak/.test(c)) { f.leak = []; ok.push('Rebounding: all five box out'); }
+      else if (/leak|run out|cherry|get out early|release early/.test(c)) { f.leak = (mine.length ? mine.map(function (x) { return x.i; }) : [0]).slice(0, 2); ok.push('Leak out: ' + f.leak.map(function (i) { return mineL[i].tag; }).join(', ')); }
+      if (ok.length === n0) { var r2 = parseRule(c, opp); if (r2) { if (f.rules.length >= 4) f.rules.shift(); f.rules.push(r2); ok.push(ruleText(r2, opp)); } else miss.push(c); }
+    });
+    return { ok: ok, miss: miss };
+  }
+  function sayCard(f, id, ph, run) {
+    var ta = h('textarea#' + id, { rows: '2', maxlength: '240', placeholder: ph, 'aria-label': 'Tell your team', oninput: function () { f.sayText = ta.value; } }); ta.value = f.sayText || '';
+    function go() { var txt = (f.sayText || '').trim(); if (!txt) return; f.said = run(txt); ui.quick = null; render(); }
+    ta.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); go(); } });
+    return h('.card.say', h('h3', { text: 'Tell your team' }), ta,
+      h('.row', h('p.note.grow', { text: 'Say it the way you would in a huddle. Several instructions at once is fine.' }), h('button.btn.small.primary', { text: 'Read it', onclick: go })),
+      f.said ? h('div', f.said.ok.map(function (l) { return h('.got', { text: '\u2713 ' + l }); }), f.said.miss.map(function (l) { return h('.missed', { text: 'Did not understand: \u201c' + l + '\u201d' }); }), !f.said.ok.length && !f.said.miss.length ? h('.missed', { text: 'Nothing to read.' }) : null) : null);
+  }
+  function tendCard(t, onOff) { // what has actually worked so far this game
+    var T = S.tend && S.tend[t] && S.tend[t][onOff ? 'o' : 'd']; if (!T) return null; var keys = Object.keys(T); if (!keys.length) return null;
+    return h('.card.tend', h('h3', { text: onOff ? 'Your calls so far' : 'Your defenses so far' }), keys.sort(function (a, b) { return T[b].n - T[a].n; }).slice(0, 5).map(function (k) {
+      var x = T[k]; return h('.trow', h('span.grow', { text: k.replace('style:', 'Freelance ') }), h('b', { text: x.pts + ' pts ' + (onOff ? 'on ' : 'allowed in ') + x.n }), h('span.pp' + ((onOff ? x.pts / x.n >= 1.1 : x.pts / x.n <= 0.9) ? '.good' : ''), { text: (x.pts / x.n).toFixed(1) + ' per' }));
+    }));
+  }
   function advToggle() { return h('button.btn.small.advbtn', { text: ui.adv ? 'Hide fine tuning' : 'Fine tuning: screens, help, doubles, rebounding', onclick: function () { ui.adv = !ui.adv; render(); } }); }
   function scoutCard(t, onOff) { // what the other bench showed the last time it was in this spot
     var sc = S.scout && S.scout[1 - t], mine = S.scout && S.scout[t], txt = sc && (onOff ? sc.def : sc.off), own = mine && (onOff ? mine.off : mine.def);
@@ -544,10 +639,16 @@
       lastResult(),
       sitLine(),
       scoutCard(t, true),
+      sayCard(f, 'say', 'e.g. run horns, get Curry threes, be patient, Jokic and Tatum crash', function (txt) { return sayOffense(txt, f, pl, names(1 - t)); }),
       quickOff(f, t),
+      tendCard(t, true),
       lineupStrip(t),
       h('.card', h('h3', { text: 'Plays' }), playSlot(0), playSlot(1)),
       h('.card', h('h3', { text: 'Freelance style' }), chipRow(BB.OFF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note + ' Used whenever no play is running.' })),
+      h('.card',
+        field('Shot selection', chipRow([['bal', 'Best look'], ['three', 'Hunt threes'], ['paint', 'Attack the paint']], f.sel || 'bal', function (v) { f.sel = v; }), { bal: 'Take whatever the defense gives.', three: 'Players pass up twos to find a three. Higher ceiling, more variance.', paint: 'Drives and finishes first. More fouls drawn, fewer threes.' }[f.sel || 'bal']),
+        field('Pace', chipRow([['quick', 'Quick shot'], ['normal', 'Normal'], ['patient', 'Work the clock']], f.pace || 'normal', function (v) { f.pace = v; }), { quick: 'First decent look goes up. Good against a set defense you cannot crack.', normal: 'Balanced.', patient: 'Passes up okay looks for great ones. Risks a forced shot late in the clock.' }[f.pace || 'normal']),
+        field('Go at a defender', chipRow([[null, 'Nobody']].concat(names(1 - t).map(function (p, i) { return [i, (i + 1) + ' ' + p.tag + ' \u00b7 D ' + p.r.pd]; })), f.hunt == null ? null : f.hunt, function (v) { f.hunt = v; if (v != null) f.focus = null; }), f.hunt == null ? 'Pick their weakest defender and the ball goes to whoever he is guarding.' : 'Whoever ' + names(1 - t)[f.hunt].tag + ' guards gets the ball. They can hide him by changing matchups.')),
       advToggle(),
       h('.card.adv',
         field('Run it through', chipRow([[null, 'Nobody']].concat(pl.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.focus, function (v) { f.focus = v; }))),
@@ -593,7 +694,7 @@
   }
 
   function formDefense(t) {
-    if (!ui.fd) { ui.fd = saved.def[t] ? clone(saved.def[t]) : { style: 'man', match: [0, 1, 2, 3, 4], cover: 'drop', press: 'normal', pp: {}, help: 'help', after: 'box' }; ui.fd.rule = null; ui.fd.ruleText = ''; ui.fd.ruleMsg = ''; }
+    if (!ui.fd) { ui.fd = saved.def[t] ? clone(saved.def[t]) : { style: 'man', match: [0, 1, 2, 3, 4], cover: 'drop', press: 'normal', pp: {}, help: 'help', after: 'box' }; ui.fd.rules = (ui.fd.rules || []).slice(); ui.fd.said = null; ui.fd.sayText = ''; }
     var f = ui.fd, st = BB.DEF_STYLES.filter(function (s) { return s.id === f.style; })[0], mine = names(t), opp = names(1 - t);
     var manOn = f.style === 'man' || f.style === 'switch' || f.style === 'mix';
     function edge(d, o) { // what a coach would notice about this pairing
@@ -616,16 +717,9 @@
           h('.edges', edge(d, op).map(function (x) { return h('i.' + x[0], { text: x[1] }); }))),
         h('button.chip.pp' + (pv ? '.on' : ''), { id: 'pp' + j, text: pv === 'sag' ? 'Sag off' : pv === 'tight' ? 'Tight' : pv === 'deny' ? 'Deny ball' : 'Team', 'aria-label': 'Pressure on ' + op.tag, onclick: function (ev) { ev.stopPropagation(); var nx = pv === '' ? 'sag' : pv === 'sag' ? 'tight' : pv === 'tight' ? 'deny' : ''; if (nx) f.pp[o] = nx; else delete f.pp[o]; render(); } }));
     }
-    var ruleIn = h('input#rule', { type: 'text', maxlength: '120', placeholder: 'e.g. double ' + opp[4].tag + ' if he posts up', value: f.ruleText || '', 'aria-label': 'Emphasis rule', oninput: function () { f.ruleText = ruleIn.value; f.rule = null; } });
-    function readRule() {
-      var txt = (f.ruleText || '').trim(); if (!txt) { f.rule = null; f.ruleMsg = ''; render(); return; }
-      f.ruleMsg = 'Reading...'; render();
-      aiRule(txt, opp).then(function (r) { r = r || parseRule(txt, opp); if (ui.fd !== f) return; f.rule = r; f.ruleMsg = r ? '' : 'Could not turn that into a rule. Try: double a player, deny a player, sag off a player, play a player tight, or switch, with an optional "when he drives / posts up / has the ball".'; render(); });
-    }
     var cov = f.style === 'switch' ? 'switch' : f.cover, prevD = saved.def[t];
     function done(src) {
-      var plan = { style: src.style, match: src.match.slice(), cover: src.cover, press: src.press, pp: clone(src.pp || {}), help: src.help, after: src.after, roles: clone(src.roles || {}), leak: (src.leak || []).slice(), dbl: src.dbl == null ? null : src.dbl, rule: src === f ? f.rule : null };
-      if (src === f && !f.rule && (f.ruleText || '').trim()) plan.rule = parseRule(f.ruleText, opp);
+      var plan = { style: src.style, match: src.match.slice(), cover: src.cover, press: src.press, pp: clone(src.pp || {}), help: src.help, after: src.after, roles: clone(src.roles || {}), leak: (src.leak || []).slice(), dbl: src.dbl == null ? null : src.dbl, rules: clone(src.rules || []) };
       ui.fd = null; if (S.mode === 'local') ui.localStep = 0; sendPlan(t, plan);
     }
     return h('div', h('.pad',
@@ -633,7 +727,10 @@
       lastResult(),
       sitLine(),
       scoutCard(t, false),
+      sayCard(f, 'rule', 'e.g. zone. or: put ' + mine[0].tag + ' on ' + opp[1].tag + ', deny ' + opp[0].tag + ', double ' + opp[4].tag + ' when he posts up', function (txt) { return sayDefense(txt, f, mine, opp); }),
+      f.rules && f.rules.length ? h('.card', h('h3', { text: 'Standing rules' }), f.rules.map(function (r, n) { return h('.row', h('span.grow', { text: ruleText(r, opp) }), h('button.btn.small', { text: 'Remove', onclick: function () { f.rules.splice(n, 1); render(); } })); })) : null,
       quickDef(f),
+      tendCard(t, false),
       h('.card', h('h3', { text: 'Scheme' }), chipRow(BB.DEF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note })),
       h('.card', h('h3', { text: 'Matchups' }),
         h('p.note', { text: manOn ? (ui.swap != null ? 'Now tap the row to trade assignments with.' : 'Tap two rows to swap who they guard. Tap the chip to change how that man is played: sag off, tight, or deny him the ball.') : 'Saved, but the zone ignores them.' }),
@@ -653,10 +750,7 @@
           field('Double team', chipRow([[null, 'Nobody']].concat(opp.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.dbl == null ? null : f.dbl, function (v) { f.dbl = v; }), f.dbl == null ? 'Nobody is doubled unless you call it live.' : 'A second defender goes at ' + opp[f.dbl].tag + ' every time he has the ball. Someone else is open.'),
           field('Rebounding', h('.chips', mine.map(function (p, j) { var lk = f.leak.indexOf(j) >= 0; return h('button.chip' + (lk ? '.on' : ''), { text: (j + 1) + ' ' + p.tag + (lk ? ': leaks out' : ': boxes out'), onclick: function () { if (lk) f.leak.splice(f.leak.indexOf(j), 1); else if (f.leak.length < 2) f.leak.push(j); render(); } }); })),
             f.leak.length ? 'Leaking out gives you a head start on your next possession if you get the rebound, and gives them more second chances.' : 'All five box out. Tap a player to send him leaking out instead, up to two.'));
-      })(),
-      h('.card.adv', h('h3', { text: 'Emphasis for this possession' }),
-        h('.row', h('.grow', ruleIn), h('button.btn.small', { text: 'Read it', onclick: readRule })),
-        f.rule ? h('.banner', { text: ruleText(f.rule, opp) }) : (f.ruleMsg ? h('p.note', { text: f.ruleMsg }) : h('p.note', { text: 'Type a rule in your own words, then tap Read it to check how it was understood.' })))),
+      })()),
       h('.foot',
         prevD ? h('button.btn', { text: 'Same as last time', onclick: function () { done(prevD); } }) : null,
         h('button.btn.primary', { text: 'Done', onclick: function () { done(f); } })));
@@ -1079,8 +1173,8 @@
   }
 
   // ---------- live view ----------
-  var OFFCALLS = [['off', 'Call it off', []], ['pnr', 'Pick & roll', ['own:Tap the ball handler', 'own:Tap the screener']], ['cut', 'Cut', ['own:Tap who cuts to the rim']]];
-  var DEFCALLS = [['double', 'Double', ['opp:Tap who to double']], ['match', 'Matchup', ['own:Tap your defender', 'opp:Tap who he guards now']], ['contest', 'Contest', ['own:Tap who crowds his man']],
+  var OFFCALLS = [['timeout', 'Timeout', []], ['off', 'Call it off', []], ['pnr', 'Pick & roll', ['own:Tap the ball handler', 'own:Tap the screener']], ['cut', 'Cut', ['own:Tap who cuts to the rim']]];
+  var DEFCALLS = [['timeout', 'Timeout', []], ['double', 'Double', ['opp:Tap who to double']], ['match', 'Matchup', ['own:Tap your defender', 'opp:Tap who he guards now']], ['contest', 'Contest', ['own:Tap who crowds his man']],
     ['steal', 'Steal', ['own:Tap who gambles for it']], ['move', 'Move', ['own:Tap your defender', 'spot:Tap where he should stand']], ['watch', 'Watch', ['own:Tap your defender', 'opp:Tap who he helps on']]];
   function buildLive(sc) {
     ui.built = 'live' + S.pos; ui.call = null; viewCur = null; cam = null; trail = []; ballTrail = []; framePrev = null; sc.textContent = '';
@@ -1111,7 +1205,7 @@
     if (ui.call) { hint.textContent = ui.call.steps[ui.call.got.length].split(':')[1] + '.'; hint.classList.add('on'); } else hint.classList.remove('on');
     document.querySelectorAll('.calls').forEach(function (r) {
       var team = +r.getAttribute('data-team');
-      r.querySelectorAll('button').forEach(function (b) { b.classList.toggle('arm', !!ui.call && ui.call.team === team && ui.call.k === b.getAttribute('data-k')); });
+      r.querySelectorAll('button').forEach(function (b) { if (b.getAttribute('data-k') === 'timeout') { var tl = (S.tos || [2, 2])[team]; b.textContent = 'Timeout \u00b7 ' + tl; b.style.display = tl > 0 ? '' : 'none'; } b.classList.toggle('arm', !!ui.call && ui.call.team === team && ui.call.k === b.getAttribute('data-k')); });
     });
   }
   function courtTap(e) {
@@ -1391,7 +1485,7 @@
   }
 
   // test hook for automated checks, harmless in normal use
-  window.__sideline = { state: function () { return S; }, sim: function () { return sim; }, speed: function (v) { SPEED = v; }, net: function () { return Net; } };
+  window.__sideline = { state: function () { return S; }, sim: function () { return sim; }, speed: function (v) { SPEED = v; }, net: function () { return Net; }, say: function (side, txt) { var t = side === 'o' ? S.off : 1 - S.off, f = side === 'o' ? { plays: [null, null], style: 'motion' } : { style: 'man', match: [0, 1, 2, 3, 4], cover: 'drop', press: 'normal', pp: {}, help: 'help' }; var r = side === 'o' ? sayOffense(txt, f, names(t), names(1 - t)) : sayDefense(txt, f, names(t), names(1 - t)); return { r: r, f: f }; } };
 
   var wake = null;
   function keepAwake() { try { if (navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function (w) { wake = w; w.addEventListener('release', function () { wake = null; }); }).catch(noop); } catch (e) { /* not supported */ } }

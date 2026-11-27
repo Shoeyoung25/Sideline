@@ -90,7 +90,7 @@
     var crash = {}, nCrash = 0, cl = Array.isArray(po.crash) ? po.crash : null;
     if (cl) cl.forEach(function (sl) { if (sl >= 0 && sl < 5 && !crash[sl]) { crash[sl] = true; nCrash++; } });
     else { offs.slice().sort(function (a, b) { return b.r.size - a.r.size || b.r.reb - a.r.reb; }).slice(0, 3).forEach(function (q) { crash[q.slot] = true; nCrash++; }); }
-    this.o = { read: Math.max(0, Math.min(2, po.read | 0)), crash: crash, nCrash: nCrash, inb: inb, inbPassed: false, safe: false, style: po.style || 'motion', tempo: 'set', focus: po.focus == null ? null : po.focus, after: po.after || 'crash',
+    this.o = { sel: po.sel || 'bal', pace: po.pace || 'normal', read: Math.max(0, Math.min(2, po.read | 0)), crash: crash, nCrash: nCrash, inb: inb, inbPassed: false, safe: false, style: po.style || 'motion', tempo: 'set', focus: po.focus == null ? null : po.focus, after: po.after || 'crash',
       plays: plays, pi: -1, beats: null, bi: 0, bt: 0, minT: 0.3, phase: 'adv', think: 0, handler: hd, setup: setup, t0: this.t, arrT: null,
       free: false, gen: false, forced: false, crossed: true, nextTC: this.t + 0.15, fb: -1, drives: 0, passes: 0, lastBallScreen: -9,
       pendingRead: false, liveQ: null, reset: null, lastStyle: -1, fails: 0, ho: null, opt: null, soc: -1, defer: null, endSh: -1, movers: [] };
@@ -105,9 +105,10 @@
     var zs = {}; defs.forEach(function (q, k) { zs[q.slot] = k; });
     this.d = { style: style, shown: style, assign: assign, cover: style === 'switch' ? 'switch' : (pdn.cover || 'drop'), press: pdn.press || 'normal', pp: pdn.pp || {},
       help: pdn.help || 'help', after: pdn.after || 'box', rule: pdn.rule || null, dbl: null, dblBy: -1, watch: {}, mv: {}, contest: {}, gamble: {},
-      deny: {}, ppRule: {}, ruleSwitch: false, zs: zs, roles: pdn.roles || {}, dblOn: pdn.dbl == null ? -1 : pdn.dbl, leak: {}, nLeak: 0 };
+      deny: {}, ppRule: {}, ruleSwitch: false, zs: zs, rules: (Array.isArray(pdn.rules) ? pdn.rules : pdn.rule ? [pdn.rule] : []).slice(0, 4), roles: pdn.roles || {}, dblOn: pdn.dbl == null ? -1 : pdn.dbl, leak: {}, nLeak: 0 };
     var dd0 = this.d; (Array.isArray(pdn.leak) ? pdn.leak : pdn.after === 'leak' ? [defs[0].slot] : []).slice(0, 2).forEach(function (sl) { if (sl >= 0 && sl < 5 && !dd0.leak[sl]) { dd0.leak[sl] = true; dd0.nLeak++; } });
     if (style !== pdn.style) this.d.shown = style;
+    if (po.hunt != null && po.hunt >= 0 && po.hunt < 5 && style !== 'zone') this.o.focus = assign[po.hunt]; // go at one defender: the ball goes to whoever he is guarding
   };
 
   Sim.prototype.guardOf = function (p) {
@@ -416,16 +417,17 @@
 
   Sim.prototype.decide = function (onlyGood) {
     var o = this.o, H = this.holder(), self = this, force = this.sc <= 4.2;
-    var thr = force ? -9 : (this.sc > 14 ? 1.07 : this.sc > 8 ? 0.99 : 0.88) - Math.min(0.3, 0.09 * o.drives + 0.06 * o.fails + 0.02 * Math.min(4, o.passes));
+    var thr = force ? -9 : (this.sc > 14 ? 1.07 : this.sc > 8 ? 0.99 : 0.88) + (this.sc > 7 ? (o.pace === 'quick' ? -0.13 : o.pace === 'patient' ? 0.08 : 0) : 0) - Math.min(0.3, 0.09 * o.drives + 0.06 * o.fails + 0.02 * Math.min(4, o.passes));
     var fog = (99 - H.r.oiq) / 99 * 0.3; function nz() { return (self.rand() - 0.5) * 2 * fog; } // low IQ misreads the floor
-    var best = { k: 'sh', ev: this.shotInfo(H).ev + nz() };
+    var si0 = this.shotInfo(H), sel = o.sel, sb = sel === 'three' ? (si0.type === 'three' ? 0.1 : -0.07) : sel === 'paint' ? (si0.type === 'rim' ? 0.08 : si0.type === 'three' ? -0.09 : -0.03) : 0;
+    var best = { k: 'sh', ev: si0.ev + sb + nz() };
     this.offs().forEach(function (T) {
       if (T === H) return;
       var risk = self.passRisk(H, T); if (risk > 0.2) return;
       var ev = (1 - risk) * self.catchEV(H, T) - risk * 1.0 - 0.03 - 0.015 * o.passes - (force ? 0.12 : 0) + nz();
       if (ev > best.ev) best = { k: 'pass', T: T, ev: ev };
     });
-    if (this.sc > 2.6) { var dv = this.driveEV(H) + nz(); if (dv > best.ev) best = { k: 'drv', ev: dv }; }
+    if (this.sc > 2.6) { var dv = this.driveEV(H) + (sel === 'paint' ? 0.09 : sel === 'three' ? -0.05 : 0) + nz(); if (dv > best.ev) best = { k: 'drv', ev: dv }; }
     if (best.ev >= thr) {
       if (best.k === 'sh') this.shoot(H);
       else if (best.k === 'pass') { this.pass(H, best.T); o.think = 0.3; }
@@ -656,10 +658,14 @@
 
   // ---------- defense ----------
   Sim.prototype.applyRule = function (H) {
-    var d = this.d, r = d.rule, hp = hoop(this.offTeam);
+    var d = this.d;
     d.deny = {}; d.ppRule = {}; d.ruleSwitch = false; d.ruleDbl = -1;
     for (var dk in d.pp) if (d.pp[dk] === 'deny') d.deny[dk] = true;
     if (H && d.dblOn === H.slot) d.ruleDbl = H.slot;
+    for (var ri = 0; ri < d.rules.length; ri++) this.applyOne(H, d.rules[ri]);
+  };
+  Sim.prototype.applyOne = function (H, r) {
+    var d = this.d, hp = hoop(this.offTeam);
     if (!r) return;
     var cond = false, who = r.wo == null ? null : r.wo;
     if (r.w === 'always') cond = true;
