@@ -192,6 +192,7 @@ p.note.fresh { color: #1f7a45; font-weight: 600; }
 .guard .grow2 { display: grid; grid-template-columns: 112px 1fr; gap: 10px; align-items: start; padding: 8px; border: 1px solid var(--line); border-radius: 10px; } .guard .grow2.on { border-color: var(--ink); box-shadow: 0 0 0 2px var(--hi); }
 .guard canvas { width: 112px; height: auto; border-radius: 8px; } .guard .nm { font-weight: 600; margin-bottom: 6px; } .guard .grow2 > div { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .tip p { margin: 0; font-size: 14px; } .tip { border-left: 4px solid var(--hi); }
+.calls button.alt { border-style: dashed; }
 #planbar { display: flex; gap: 6px; padding: 4px 10px; font-size: 12.5px; font-weight: 600; background: var(--panel); border-bottom: 1px solid var(--line); min-height: 26px; overflow: hidden; }
 #planbar span { padding: 2px 8px; border-radius: 999px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 #planbar span:first-child { flex: 0 0 auto; max-width: 70%; }
@@ -219,7 +220,7 @@ p.note.fresh { color: #1f7a45; font-weight: 600; }
    (bypassing the cache) which build is current, reloads if this page is older, and loads the game files
    under that build's name so a stale copy can never be used. */
 (function () {
-  var BUILD = 'Nov 27 05:53'; window.SIDELINE_BUILD = BUILD;
+  var BUILD = 'Nov 27 06:05'; window.SIDELINE_BUILD = BUILD;
   function load(v) {
     var files = ['data.js', 'engine.js', 'app.js'], i = 0;
     (function next() { if (i >= files.length) return; var s = document.createElement('script'); s.src = files[i++] + '?v=' + encodeURIComponent(v); s.onload = next; s.onerror = next; document.body.appendChild(s); })();

@@ -92,6 +92,9 @@
     var roles = {}; if (p.roles) [0, 1, 2, 3, 4].forEach(function (k) { if (p.roles[k] === 'home' || p.roles[k] === 'help') roles[k] = p.roles[k]; });
     return { style: oneOf(p.style, ['man', 'switch', 'zone', 'mix'], 'man'), match: m, cover: oneOf(p.cover, ['drop', 'switch', 'hedge', 'trap'], 'drop'),
       press: oneOf(p.press, ['sag', 'normal', 'tight'], 'normal'), pp: pp, help: oneOf(p.help, ['help', 'home'], 'help'), after: 'box', leak: Array.isArray(p.leak) ? p.leak.map(slot).filter(function (v, i, a) { return a.indexOf(v) === i; }).slice(0, 2) : [], roles: roles, dbl: p.dbl == null ? null : slot(p.dbl), rules: (Array.isArray(p.rules) ? p.rules : p.rule ? [p.rule] : []).map(cleanRule).filter(Boolean).slice(0, 4),
+      zid: ZP[p.zid] ? p.zid : 'z23', zc: cleanZone(p.zc), zt: Array.isArray(p.zt) ? p.zt.map(slot).slice(0, 2) : null, zname: p.zname ? String(p.zname).slice(0, 20) : '', zone: cleanZone(p.zone),
+      altIds: Array.isArray(p.altIds) ? p.altIds.filter(function (k) { return k === 'man' || k === 'switch' || ZP[k]; }).slice(0, 2) : [],
+      alts: (Array.isArray(p.alts) ? p.alts : []).slice(0, 2).map(function (a) { a = a || {}; return { name: String(a.name || 'Defense').slice(0, 22), style: oneOf(a.style, ['man', 'switch', 'zone'], 'man'), zone: cleanZone(a.zone) }; }),
       spots: (Array.isArray(p.spots) ? p.spots : []).filter(function (z) { return z && (z.k === 'steal' || z.k === 'wall' || z.k === 'trap') && isFinite(z.x) && isFinite(z.y); }).slice(0, 4).map(function (z) { return { k: z.k, x: Math.max(-24, Math.min(24, +z.x)), y: Math.max(1, Math.min(45, +z.y)) }; }),
       sit: p.sit && typeof p.sit.sig === 'string' && p.sit.sig.length < 600 ? { sig: p.sit.sig, take: oneOf(p.sit.take, ['pass', 'screen', 'shooter'], 'pass') } : null };
   }
@@ -126,7 +129,8 @@
     if (bk.length && Math.random() < [0.12, 0.42, 0.62][lv]) { var tot = bk.reduce(function (a, q) { return a + q.n; }, 0), roll = Math.random() * tot, pick = bk[0]; bk.some(function (q) { roll -= q.n; if (roll <= 0) { pick = q; return true; } return false; }); sit = { sig: pick.sig, take: rnd(['pass', 'screen', 'shooter']) }; }
     them.forEach(function (p, i) { if (p.r.three >= 90) pp[i] = 'tight'; else if (p.r.three < 66) pp[i] = 'sag'; if (p.r.ovr > them[best].r.ovr) best = i; });
     var st = rnd(['man', 'man', 'man', 'man', 'switch', 'zone', 'zone', 'mix']);
-    return { style: st, match: [0, 1, 2, 3, 4], cover: rnd(['drop', 'drop', 'hedge', 'switch', 'trap']), press: rnd(['normal', 'normal', 'tight', 'sag']), pp: pp, help: rnd(['help', 'help', 'home']), dbl: Math.random() < 0.15 ? best : null, roles: {}, leak: Math.random() < 0.15 ? [0] : [], rules: [], spots: Math.random() < [0.1, 0.35, 0.5][lv] ? [{ k: rnd(['steal', 'wall', 'trap']), x: rnd([-17, -8, 0, 8, 17]), y: rnd([8, 16, 24]) }] : [], sit: sit };
+    var zid = rnd(['z23', 'z23', 'z131', 'z32', 'box1']);
+    return { zid: zid, zname: st === 'zone' ? ZP[zid][0] : '', zone: st === 'zone' ? zoneCfg(zid, names(t), them, {}) : null, style: st, match: [0, 1, 2, 3, 4], cover: rnd(['drop', 'drop', 'hedge', 'switch', 'trap']), press: rnd(['normal', 'normal', 'tight', 'sag']), pp: pp, help: rnd(['help', 'help', 'home']), dbl: Math.random() < 0.15 ? best : null, roles: {}, leak: Math.random() < 0.15 ? [0] : [], rules: [], spots: Math.random() < [0.1, 0.35, 0.5][lv] ? [{ k: rnd(['steal', 'wall', 'trap']), x: rnd([-17, -8, 0, 8, 17]), y: rnd([8, 16, 24]) }] : [], sit: sit };
   }
   function tname(t) { return S.ai === t ? 'Computer' : TEAM[t]; }
   function aiCoach() { if (S.ai == null || S.phase !== 'coach' || S.done[S.ai]) return; var at = S.rd; setTimeout(function () { if (S.ai != null && S.phase === 'coach' && S.rd === at && !S.done[S.ai]) submitPlan(S.ai, aiPlan(S.ai)); }, 50); }
@@ -186,7 +190,7 @@
       sim.startPossession(S.off, pend[S.off], pend[1 - S.off]);
       if (S.afterTO) { sim.sc = S.afterTO; S.afterTO = 0; }
       S.now = { off: descOff(pend[S.off]), def: descDef(pend[1 - S.off]), n: pend[S.off].plays.filter(Boolean).map(function (q) { return q.beats.length; }), nm: pend[S.off].plays.filter(Boolean).map(function (q) { return q.name; }), st: styleName(BB.OFF_STYLES, pend[S.off].style) };
-      var look = { man: 'man to man', 'switch': 'man to man, switching everything', zone: 'a 2-3 zone' }[sim.d.style];
+      var look = { man: 'man to man', 'switch': 'man to man, switching everything', zone: (pend[1 - S.off] && pend[1 - S.off].zname ? 'a ' + pend[1 - S.off].zname + ' zone' : 'a 2-3 zone') }[sim.d.style];
       sim.ev(TEAM[1 - S.off] + ' is in ' + look + '.', 'i');
       S.slow = null; slowUntil = 0; slowCool = [0, 0]; S.phase = 'live'; S.flash = S.sitRes ? { txt: S.sitRes.ok ? 'Read it!' : 'Wrong guess', team: S.sitRes.ok ? 1 - S.off : S.off, start: 1 } : { txt: S.clutch ? 'Clutch time' : TEAM[S.off] + ' ball', team: S.off, start: 1 };
       if (S.sitRes) sim.ev(S.sitRes.ok ? tname(S.sitRes.team) + ' guessed it: they were sitting on ' + S.sitRes.name + '.' : tname(S.sitRes.team) + ' sat on the wrong play and get caught leaning.', 'play'); startHold = 1.1; liveFor = 0; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null; frameT = sim.frame();
@@ -202,7 +206,7 @@
   function playSig(p) { return playSide(p) + ':' + p.beats.map(function (b) { return b.map(function (a) { return a.k + a.s + (a.to == null ? '' : a.to); }).sort().join(','); }).join('|'); }
   function styleName(list, id) { var x = list.filter(function (q) { return q.id === id; })[0]; return x ? x.name : id; }
   function descOff(p) { var pl = p.plays.filter(Boolean).map(function (q) { return q.name; }); return (pl.length ? pl.join(', then ') + ', then ' : '') + styleName(BB.OFF_STYLES, p.style).toLowerCase() + (p.focus != null ? ', through ' + names(S.off)[p.focus].tag : ''); }
-  function descDef(p) { var z = p.style === 'zone'; return styleName(BB.DEF_STYLES, p.style) + (z ? '' : ', ' + (p.style === 'switch' ? 'switch' : p.cover) + ' on screens') + ', ' + { sag: 'sagging off', normal: 'normal pressure', tight: 'tight pressure' }[p.press] + ', ' + (p.help === 'help' ? 'helping on drives' : 'staying home') + (p.dbl != null ? ', doubling ' + names(S.off)[p.dbl].tag : '') + (p.leak && p.leak.length ? ', ' + p.leak.length + ' leaking out' : '') + (p.rules && p.rules.length ? '. Emphasis: ' + p.rules.map(function (r) { return ruleText(r, names(S.off)); }).join(' ') : ''); }
+  function descDef(p) { var z = p.style === 'zone'; return (z && p.zname ? p.zname + ' zone' : styleName(BB.DEF_STYLES, p.style)) + (z ? '' : ', ' + (p.style === 'switch' ? 'switch' : p.cover) + ' on screens') + ', ' + { sag: 'sagging off', normal: 'normal pressure', tight: 'tight pressure' }[p.press] + ', ' + (p.help === 'help' ? 'helping on drives' : 'staying home') + (p.dbl != null ? ', doubling ' + names(S.off)[p.dbl].tag : '') + (p.leak && p.leak.length ? ', ' + p.leak.length + ' leaking out' : '') + (p.rules && p.rules.length ? '. Emphasis: ' + p.rules.map(function (r) { return ruleText(r, names(S.off)); }).join(' ') : ''); }
   function endPossession() {
     var got = sim.score[S.off] - S.score[S.off], dp = pend[1 - S.off] || {}, okk = S.calls && S.calls[S.off] ? S.calls[S.off].k : 'call', dkk = styleName(BB.DEF_STYLES, dp.style || 'man') + (dp.style === 'zone' ? '' : ', ' + (dp.cover || 'drop')) + ', ' + (dp.press || 'normal');
     S.tend = S.tend || [{ o: {}, d: {} }, { o: {}, d: {} }];
@@ -233,6 +237,7 @@
   function liveCall(team, c) {
     if (S.phase !== 'live' || !sim || !c) return;
     if (c.k === 'arm') { armSlow(team); return; }
+    if (c.k === 'scheme') { if (team === S.off || Date.now() < ui.cool[team] || sim.done) return; if (sim.call(team, c)) { ui.cool[team] = Date.now() + COOLDOWN; S.now.def = (((pend[team] || {}).alts || [])[c.i] || {}).name || S.now.def; changed(); } return; }
     if (c.k === 'timeout') { // stop the possession: both coaches set up again, the shot clock keeps what was left
       S.tos = S.tos || [2, 2]; if (S.tos[team] <= 0 || sim.done || startHold > 0 || (sim.ball.fly && sim.ball.fly.type === 'shot') || sim.ball.reb) return;
       S.tos[team]--; S.afterTO = Math.max(8, Math.ceil(sim.sc)); sim.finish('to', 0, true); sim.score = S.score.slice(); S.flash = null; S.slow = null; slowUntil = 0;
@@ -605,7 +610,12 @@
       else if (/sag|back off|leave .* open|dare|let .* shoot|go under|play off|give .* (room|space)/.test(c)) { if (o0 != null) { them.forEach(function (x) { f.pp[x.i] = 'sag'; }); ok.push('Sag off ' + them.map(function (x) { return opp[x.i].tag; }).join(', ')); } else { f.press = 'sag'; ok.push('Team pressure: sag off'); } }
       else if (/tight|pressure|press up|crowd|pick .* up|get into|up on|in his (jersey|shirt|face)|no (air|space)|chase/.test(c)) { if (o0 != null) { them.forEach(function (x) { f.pp[x.i] = 'tight'; }); ok.push('Tight on ' + them.map(function (x) { return opp[x.i].tag; }).join(', ')); } else { f.press = 'tight'; ok.push('Team pressure: tight'); } }
       if (/pack the paint|protect the (paint|rim)|wall up|clog/.test(c)) { f.press = 'sag'; f.help = 'help'; ok.push('Pack the paint: sag off and help'); }
-      if (/zone|2-3|2 3/.test(c)) { f.style = 'zone'; ok.push('Scheme: 2-3 zone'); }
+      if (/1-3-1|1 3 1|131/.test(c)) { f.style = 'zone'; f.zid = 'z131'; ok.push('Scheme: 1-3-1 zone'); }
+      else if (/3-2|3 2 zone/.test(c)) { f.style = 'zone'; f.zid = 'z32'; ok.push('Scheme: 3-2 zone'); }
+      else if (/1-2-2/.test(c)) { f.style = 'zone'; f.zid = 'z122'; ok.push('Scheme: 1-2-2 zone'); }
+      else if (/box and (one|1)|box & 1|box-and-one/.test(c)) { f.style = 'zone'; f.zid = 'box1'; if (o0 != null) f.zt = [o0]; ok.push('Scheme: box and 1' + (o0 != null ? ' on ' + opp[o0].tag : '')); }
+      else if (/triangle and (two|2)/.test(c)) { f.style = 'zone'; f.zid = 'tri2'; if (them.length >= 2) f.zt = [them[0].i, them[1].i]; ok.push('Scheme: triangle and 2'); }
+      else if (/zone|2-3|2 3/.test(c)) { f.style = 'zone'; f.zid = 'z23'; ok.push('Scheme: 2-3 zone'); }
       else if (/switch (everything|all|it all|1 through 5|one through five)/.test(c)) { f.style = 'switch'; ok.push('Scheme: switch everything'); }
       else if (/mix it up|change it up|disguise|keep them guessing/.test(c)) { f.style = 'mix'; ok.push('Scheme: mix it up'); }
       else if (/man to man|\bman\b/.test(c) && !mine.length) { f.style = 'man'; ok.push('Scheme: man to man'); }
@@ -680,6 +690,57 @@
     }
     if (!tip) return null;
     return h('.card.tip', h('.row', h('p.grow', h('b', { text: 'Coach tip: ' }), tip.txt), h('button.btn.small.primary', { text: 'Do it', onclick: function () { tip.go(); ui.quick = null; render(); } })));
+  }
+  // zone shapes: spots listed from the top of the floor down. Defenders fill them smallest first.
+  var ZP = { z23: ['2-3', [[-9, 21], [9, 21], [-13, 9.5], [13, 9.5], [0, 8]], 0, 'Two up top, three along the baseline. Protects the paint, gives up threes above the break.'],
+    z131: ['1-3-1', [[0, 26], [-14, 17], [14, 17], [0, 15], [0, 6]], 0, 'A chaser up top, three across the middle, one under the rim. Smothers the middle, weak in the corners and against a pick and roll.'],
+    z32: ['3-2', [[0, 25], [-15, 20], [15, 20], [-7, 8], [7, 8]], 0, 'Three across the arc, two inside. Takes away threes, soft against a post-up.'],
+    z122: ['1-2-2', [[0, 27], [-11, 19], [11, 19], [-8, 8], [8, 8]], 0, 'A point pressure man, two at the wings, two inside.'],
+    box1: ['Box and 1', [[-8, 17], [8, 17], [-7, 7], [7, 7]], 1, 'One defender chases their best scorer everywhere. The other four play a box. Soft against size.'],
+    tri2: ['Triangle and 2', [[0, 16], [-7, 7], [7, 7]], 2, 'Two defenders chase their two best scorers. The other three guard the paint in a triangle.'],
+    custom: ['Custom', null, 0, 'Drag your five defenders where you want them. Set how far each one reaches, or pull any of them out to guard one man.'] };
+  function zoneCfg(id, mine, opp, f) { // turn a shape into spots, reach and man assignments for these five defenders
+    var Z = ZP[id] || ZP.z23; if (id === 'custom') { var c = f.zc || {}; return { spots: c.spots, r: c.r, man: c.man || {} }; }
+    var order = mine.map(function (p, i) { return i; }).sort(function (a, b) { return mine[a].r.hgt - mine[b].r.hgt || mine[b].r.spd - mine[a].r.spd; }), spots = [], man = {}, k = 0;
+    var tg = (f.zt && f.zt.length ? f.zt : opp.map(function (p, i) { return i; }).sort(function (a, b) { return opp[b].r.ovr - opp[a].r.ovr; })).slice(0, Z[2]);
+    var chasers = order.slice().sort(function (a, b) { return mine[b].r.pd - mine[a].r.pd; }).slice(0, Z[2]);
+    chasers.forEach(function (j, n) { man[j] = tg[n]; });
+    order.forEach(function (j) { spots[j] = man[j] != null ? [0, 24] : Z[1][k++]; });
+    return { spots: spots, man: man };
+  }
+  function schemeOf(id, mine, opp, f) { return id === 'man' ? { name: 'Man to man', style: 'man' } : id === 'switch' ? { name: 'Switch everything', style: 'switch' } : { name: ZP[id][0] + (id === 'custom' ? ' zone' : ''), style: 'zone', zone: zoneCfg(id, mine, opp, f) }; }
+  function cleanZone(z) {
+    if (!z || typeof z !== 'object') return null; var out = { spots: [], r: [], man: {} };
+    for (var j = 0; j < 5; j++) { var sp = Array.isArray(z.spots) && Array.isArray(z.spots[j]) ? z.spots[j] : null; out.spots.push(sp && isFinite(sp[0]) && isFinite(sp[1]) ? [Math.max(-24, Math.min(24, +sp[0])), Math.max(2, Math.min(40, +sp[1]))] : null); out.r.push(z.r && isFinite(z.r[j]) && +z.r[j] > 0 ? Math.max(6, Math.min(26, +z.r[j])) : 0); if (z.man && z.man[j] != null && isFinite(z.man[j])) out.man[j] = slot(z.man[j]); }
+    return out;
+  }
+  function zoneCard(f, mine, opp) {
+    f.zid = f.zid || 'z23'; var Z = ZP[f.zid];
+    var card = [h('h3', { text: 'Zone shape' }), h('.chips', Object.keys(ZP).map(function (k) { return h('button.chip' + (f.zid === k ? '.on' : ''), { text: ZP[k][0], onclick: function () { f.zid = k; if (k === 'custom' && !f.zc) { var b = zoneCfg('z23', mine, opp, f); f.zc = { spots: b.spots.map(function (q) { return q.slice(); }), r: [14, 14, 14, 14, 14], man: {} }; } render(); } }); })), h('p.note', { text: Z[3] })];
+    if (Z[2]) { var tg = (f.zt && f.zt.length ? f.zt : opp.map(function (p, i) { return i; }).sort(function (a, b) { return opp[b].r.ovr - opp[a].r.ovr; })).slice(0, Z[2]);
+      card.push(field('Who gets chased', h('.chips', opp.map(function (p, i) { var on = tg.indexOf(i) >= 0; return h('button.chip' + (on ? '.on' : ''), { text: (i + 1) + ' ' + p.tag, onclick: function () { var nt = tg.filter(function (x) { return x !== i; }); if (!on) { nt.push(i); if (nt.length > Z[2]) nt.shift(); } if (nt.length) f.zt = nt; render(); } }); })), 'Your best perimeter defender' + (Z[2] > 1 ? 's take them' : ' takes him') + ' man to man.')); }
+    if (f.zid === 'custom') {
+      var c = f.zc, cv = h('canvas.big#zoneboard', { width: 500, height: 470 }), s = 10, sel = ui.zsel == null ? 0 : ui.zsel, drag = null;
+      function paint() { drawDiagram(cv, { setup: BB.FORM['5 out'], ball: 0, beats: [] }, { beat: -1, empty: true }); var ctx = cv.getContext('2d'); ctx.fillStyle = 'rgba(220,174,116,.6)'; ctx.fillRect(0, 0, 500, 470);
+        c.spots.forEach(function (sp, j) { var x = (sp[0] + 25) * s, y = sp[1] * s, isMan = c.man[j] != null;
+          if (!isMan) { ctx.beginPath(); ctx.arc(x, y, c.r[j] * s, 0, Math.PI * 2); ctx.fillStyle = 'rgba(28,95,212,' + (j === sel ? 0.2 : 0.09) + ')'; ctx.fill(); ctx.strokeStyle = 'rgba(28,95,212,' + (j === sel ? 0.9 : 0.4) + ')'; ctx.lineWidth = j === sel ? 3 : 1.5; ctx.stroke(); }
+          ctx.beginPath(); ctx.arc(x, y, 15, 0, Math.PI * 2); ctx.fillStyle = isMan ? '#18202e' : '#1c5fd4'; ctx.fill(); if (j === sel) { ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 4; ctx.stroke(); }
+          ctx.fillStyle = '#fff'; ctx.font = '700 18px "Barlow Condensed", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(isMan ? 'M' : String(j + 1), x, y + 1); }); }
+      function pt(ev) { var r = cv.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * 50 - 25, (ev.clientY - r.top) / r.height * 47]; }
+      cv.addEventListener('pointerdown', function (ev) { var q = pt(ev), hit = -1, bd = 4.5; c.spots.forEach(function (sp, j) { var dd = Math.hypot(sp[0] - q[0], sp[1] - q[1]); if (dd < bd) { bd = dd; hit = j; } }); if (hit >= 0) { drag = hit; sel = ui.zsel = hit; try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* fine */ } paint(); } ev.preventDefault(); });
+      cv.addEventListener('pointermove', function (ev) { if (drag == null) return; var q = pt(ev); c.spots[drag] = [Math.round(Math.max(-24, Math.min(24, q[0])) * 2) / 2, Math.round(Math.max(2, Math.min(40, q[1])) * 2) / 2]; paint(); });
+      cv.addEventListener('pointerup', function () { if (drag != null) { drag = null; render(); } });
+      cv.style.touchAction = 'none'; paint();
+      card.push(cv, h('p.note', { text: 'Drag a defender to place him. Tap one to select him. Selected: ' + (sel + 1) + ' ' + mine[sel].tag + '.' }),
+        field('His reach', chipRow([[9, 'Tight area'], [14, 'Normal'], [20, 'Wide area']], c.r[sel], function (v) { c.r[sel] = v; }), 'A wide area picks up attackers farther from his spot. A tight area keeps him home and leaves shooters outside it alone.'),
+        field('Or pull him out to play man', chipRow([[null, 'Stays in the zone']].concat(opp.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), c.man[sel] == null ? null : c.man[sel], function (v) { if (v == null) delete c.man[sel]; else { Object.keys(c.man).forEach(function (k) { if (c.man[k] === v) delete c.man[k]; }); c.man[sel] = v; } }), Object.keys(c.man).length + ' in man, ' + (5 - Object.keys(c.man).length) + ' in the zone.'));
+    }
+    return h('.card.board', card);
+  }
+  function altCard(f) {
+    f.alts = f.alts || []; var opts = ['man', 'switch', 'z23', 'z131', 'z32', 'z122', 'box1', 'tri2'].concat(f.zc ? ['custom'] : []);
+    return h('.card', h('h3', { text: 'Live switches' }), h('.chips', opts.map(function (k) { var on = f.alts.indexOf(k) >= 0, nm = k === 'man' ? 'Man' : k === 'switch' ? 'Switch all' : ZP[k][0]; return h('button.chip' + (on ? '.on' : ''), { text: nm, onclick: function () { if (on) f.alts.splice(f.alts.indexOf(k), 1); else { f.alts.push(k); if (f.alts.length > 2) f.alts.shift(); } render(); } }); })),
+      h('p.note', { text: f.alts.length ? 'During the possession you get a button for each of these and can change defenses on the fly.' : 'Pick up to two defenses to keep in your pocket. You can switch to them with one tap while the possession is live.' }));
   }
   function advToggle() { return h('button.btn.small.advbtn', { text: ui.adv ? 'Hide fine tuning' : 'Fine tuning: screens, help, doubles, rebounding', onclick: function () { ui.adv = !ui.adv; render(); } }); }
   function scoutCard(t, onOff) { // what the other bench showed the last time it was in this spot
@@ -818,7 +879,7 @@
   }
 
   function formDefense(t) {
-    if (!ui.fd) { ui.fd = saved.def[t] ? clone(saved.def[t]) : { style: 'man', match: [0, 1, 2, 3, 4], cover: 'drop', press: 'normal', pp: {}, help: 'help', after: 'box' }; ui.fd.rules = (ui.fd.rules || []).slice(); ui.fd.sit = null; ui.fd.said = null; ui.fd.sayText = ''; }
+    if (!ui.fd) { ui.fd = saved.def[t] ? clone(saved.def[t]) : { style: 'man', match: [0, 1, 2, 3, 4], cover: 'drop', press: 'normal', pp: {}, help: 'help', after: 'box' }; ui.fd.rules = (ui.fd.rules || []).slice(); ui.fd.alts = (ui.fd.altIds || ui.fd.alts || []).filter(function (k) { return typeof k === 'string'; }); ui.fd.sit = null; ui.fd.said = null; ui.fd.sayText = ''; }
     var f = ui.fd, st = BB.DEF_STYLES.filter(function (s) { return s.id === f.style; })[0], mine = names(t), opp = names(1 - t);
     var manOn = f.style === 'man' || f.style === 'switch' || f.style === 'mix';
     function edge(d, o) { // what a coach would notice about this pairing
@@ -844,7 +905,7 @@
     }
     var cov = f.style === 'switch' ? 'switch' : f.cover, prevD = saved.def[t];
     function done(src) {
-      var plan = { style: src.style, match: src.match.slice(), cover: src.cover, press: src.press, pp: clone(src.pp || {}), help: src.help, after: src.after, roles: clone(src.roles || {}), leak: (src.leak || []).slice(), dbl: src.dbl == null ? null : src.dbl, rules: clone(src.rules || []), spots: clone(src.spots || []), sit: src === f && f.sit ? { sig: f.sit.sig, take: f.sit.take } : null };
+      var plan = { style: src.style, match: src.match.slice(), cover: src.cover, press: src.press, pp: clone(src.pp || {}), help: src.help, after: src.after, roles: clone(src.roles || {}), leak: (src.leak || []).slice(), dbl: src.dbl == null ? null : src.dbl, rules: clone(src.rules || []), spots: clone(src.spots || []), zid: src.zid || 'z23', zc: src.zc ? clone(src.zc) : null, zt: src.zt ? src.zt.slice() : null, zname: src.style === 'zone' ? ZP[src.zid || 'z23'][0] : '', zone: src.style === 'zone' ? zoneCfg(src.zid || 'z23', mine, opp, src) : null, altIds: (src.alts || []).slice(), alts: (src.alts || []).map(function (k) { return schemeOf(k, mine, opp, src); }), sit: src === f && f.sit ? { sig: f.sit.sig, take: f.sit.take } : null };
       ui.fd = null; if (S.mode === 'local') ui.localStep = 0; sendPlan(t, plan);
     }
     return h('div', h('.pad',
@@ -871,7 +932,9 @@
       defBoard(f, t),
       quickDef(f),
       tendCard(t, false),
-      h('.card', h('h3', { text: 'Scheme' }), chipRow(BB.DEF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note })),
+      h('.card', h('h3', { text: 'Scheme' }), chipRow(BB.DEF_STYLES.map(function (s) { return [s.id, s.id === 'zone' ? 'Zone' : s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: f.style === 'zone' ? 'Pick a shape below, or build your own.' : st.note })),
+      f.style === 'zone' ? zoneCard(f, mine, opp) : null,
+      altCard(f),
       h('.card', h('h3', { text: 'Matchups' }),
         h('p.note', { text: manOn ? (ui.swap != null ? 'Now tap the row to trade assignments with.' : 'Tap two rows to swap who they guard. Tap the chip to change how that man is played: sag off, tight, or deny him the ball.') : 'Saved, but the zone ignores them.' }),
         [0, 1, 2, 3, 4].map(matchRow)),
@@ -1361,6 +1424,10 @@
   function updateLive() {
     watchFlash();
     var t = $('#toasttxt'); if (!t) return;
+    document.querySelectorAll('.calls').forEach(function (r) { // a button for each defense kept in the coach's pocket
+      var tm = +r.getAttribute('data-team'); if (tm === S.off || r.getAttribute('data-alts')) return; var al = auth ? (pend[tm] || {}).alts : tm === me ? (saved.def[me] || {}).alts : null; if (!al) return; r.setAttribute('data-alts', '1');
+      al.forEach(function (a, i) { add(r, h('button.alt', { text: '\u21c4 ' + a.name, onclick: function () { sendCall(tm, { k: 'scheme', i: i }); } })); });
+    });
     t.textContent = lastLine(); var pv = $('#toastprev'); if (pv) pv.textContent = S.log.length > 1 ? S.log[S.log.length - 2] : '';
     var fd = $('#feedlist'); if (fd) { fd.className = 'bot'; fd.textContent = ''; S.log.slice(-5, -1).forEach(function (l) { add(fd, h('div', { text: l })); }); }
     var fl = $('#flash'); if (fl) { if (S.flash) { fl.textContent = S.flash.txt; fl.className = 'on t' + S.flash.team; fl.style.fontSize = S.flash.txt.length > 12 ? '30px' : S.flash.txt.length > 8 ? '38px' : ''; } else fl.className = ''; }

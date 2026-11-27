@@ -109,6 +109,8 @@
       deny: {}, ppRule: {}, ruleSwitch: false, zs: zs, rules: (Array.isArray(pdn.rules) ? pdn.rules : pdn.rule ? [pdn.rule] : []).slice(0, 4), roles: pdn.roles || {}, dblOn: pdn.dbl == null ? -1 : pdn.dbl, leak: {}, nLeak: 0 };
     var dd0 = this.d; (Array.isArray(pdn.leak) ? pdn.leak : pdn.after === 'leak' ? [defs[0].slot] : []).slice(0, 2).forEach(function (sl) { if (sl >= 0 && sl < 5 && !dd0.leak[sl]) { dd0.leak[sl] = true; dd0.nLeak++; } });
     if (style !== pdn.style) this.d.shown = style;
+    this.d.assign0 = assign.slice(); this.d.alts = Array.isArray(pdn.alts) ? pdn.alts.slice(0, 2) : []; this.d.zdef = defs.map(function (q) { return q.slot; });
+    this.setScheme({ style: style, zone: pdn.zone }, true);
     this.d.spots = (Array.isArray(pdn.spots) ? pdn.spots : []).slice(0, 4).map(function (z) { var w = h2w(offTeam, z.x, z.y); return { k: z.k, x: w.x, y: w.y }; });
     if (po.hunt != null && po.hunt >= 0 && po.hunt < 5 && style !== 'zone') this.o.focus = assign[po.hunt]; // go at one defender: the ball goes to whoever he is guarding
   };
@@ -142,7 +144,7 @@
       if (d1 < 3.6) pf = 0.11 + Math.min(0.1, r.fta * 0.011);
     } else {
       var base;
-      if (type === 'three') base = 0.336 + (r.three - 70) * 0.0043 - Math.max(0, d - 26) * 0.012;
+      if (type === 'three') base = 0.336 + (r.three - 70) * 0.0043 - Math.max(0, d - 26) * 0.012 - (this.d && this.d.style === 'zone' ? 0.055 : 0); // zone closeouts arrive late but arrive: the model's rotations are slower than a real zone's
       else if (type === 'short') base = 0.43 + (r.ins - 75) * 0.004;
       else base = 0.40 + (r.mid - 76) * 0.004;
       var c = 0;
@@ -673,6 +675,19 @@
   };
 
   // ---------- defense ----------
+  // A scheme is man, switch, or a zone. A zone gives each defender a spot and a reach, and any defender can be pulled out to play one man instead.
+  Sim.prototype.setScheme = function (sc, quiet) {
+    var d = this.d, self = this, z = sc.zone || {}, hpw = { x: 0, y: 5.25 }, j;
+    d.style = sc.style === 'zone' ? 'zone' : sc.style === 'switch' ? 'switch' : 'man';
+    d.assign = d.assign0.slice(); d.zspots = {}; d.zr = {}; d.zman = {}; d.zmanOf = {}; d.anchor = -1;
+    if (d.style !== 'zone') return;
+    for (j = 0; j < 5; j++) {
+      var sp = z.spots && z.spots[j] ? z.spots[j] : ZONE[d.zdef.indexOf(j)]; d.zspots[j] = [clamp(+sp[0] || 0, -24, 24), clamp(+sp[1] || 8, 2, 40)];
+      d.zr[j] = clamp(z.r && +z.r[j] ? +z.r[j] : 20, 6, 26);
+      var m = z.man ? z.man[j] : null; if (m != null && m >= 0 && m < 5 && !d.zmanOf[m]) { d.zman[j] = m; d.zmanOf[m] = 1; var k = d.assign.indexOf(m); if (k >= 0) { d.assign[k] = d.assign[j]; d.assign[j] = m; } }
+    }
+    var best = 1e9; for (j = 0; j < 5; j++) if (d.zman[j] == null) { var dh = dist(d.zspots[j][0], d.zspots[j][1], hpw.x, hpw.y); if (dh < best) { best = dh; d.anchor = j; } }
+  };
   Sim.prototype.applyRule = function (H) {
     var d = this.d;
     d.deny = {}; d.ppRule = {}; d.ruleSwitch = false; d.ruleDbl = -1;
@@ -725,11 +740,13 @@
     // matchup zone: attackers nearest the ball get the nearest free perimeter defender, the biggest man stays home
     var zBall = -1, zMan = {};
     if (zone) {
-      var free = [0, 1, 2, 3, 4].filter(function (jj) { return d.zs[jj] !== 4 && self.dp(jj).stun <= 0; });
-      var atk = this.offs().filter(function (q) { return pd(q, hp) > 9 && pd(q, hp) < 34; }).sort(function (a, b) { return (a === H ? -1 : dist(a.x, a.y, bx, by)) - (b === H ? -1 : dist(b.x, b.y, bx, by)); });
+      var zw = {}; [0, 1, 2, 3, 4].forEach(function (jj) { zw[jj] = h2w(off, d.zspots[jj][0], d.zspots[jj][1]); });
+      var free = [0, 1, 2, 3, 4].filter(function (jj) { return jj !== d.anchor && d.zman[jj] == null && self.dp(jj).stun <= 0; });
+      var atk = this.offs().filter(function (q) { return pd(q, hp) > 9 && pd(q, hp) < 34 && !d.zmanOf[q.slot]; }).sort(function (a, b) { return (a === H ? -1 : dist(a.x, a.y, bx, by)) - (b === H ? -1 : dist(b.x, b.y, bx, by)); });
       atk.forEach(function (q) {
         if (!free.length) return;
-        var bi2 = 0, bd2 = 1e9; free.forEach(function (jj, k2) { var dd2 = pd(self.dp(jj), q); if (dd2 < bd2) { bd2 = dd2; bi2 = k2; } });
+        var bi2 = 0, bd2 = 1e9; free.forEach(function (jj, k2) { var dd2 = pd(self.dp(jj), q) + (dist(zw[jj].x, zw[jj].y, q.x, q.y) > d.zr[jj] ? 1000 : 0); if (dd2 < bd2) { bd2 = dd2; bi2 = k2; } });
+        if (bd2 >= 1000) return; // nobody's zone reaches him: he is left alone
         var jj2 = free.splice(bi2, 1)[0];
         if (q === H) zBall = jj2; else zMan[jj2] = q;
       });
@@ -745,12 +762,12 @@
       }
       else if (dt2 >= 0 && d.dblBy === j) { var X = this.op(dt2); u = unit(X.x, X.y, hp.x, hp.y); tx = X.x + u.x * 1.8 - u.y * 1.6; ty = X.y + u.y * 1.8 + u.x * 1.6; }
       else if (helper === D) { u = unit(hp.x, hp.y, H.x, H.y); tx = hp.x + u.x * 4.5; ty = hp.y + u.y * 4.5; }
-      else if (zone) {
+      else if (zone && d.zman[j] == null) {
         if (zBall === j) { u = unit(H.x, H.y, hp.x, hp.y); tx = H.x + u.x * 3.2; ty = H.y + u.y * 3.2; }
         else {
-          var zp = h2w(off, ZONE[d.zs[j]][0], ZONE[d.zs[j]][1]); tx = zp.x + (bx - zp.x) * 0.3; ty = zp.y + (by - zp.y) * 0.3;
+          var zp = h2w(off, d.zspots[j][0], d.zspots[j][1]); tx = zp.x + (bx - zp.x) * 0.3; ty = zp.y + (by - zp.y) * 0.3;
           var zn = zMan[j];
-          if (zn) { var uz = unit(zn.x, zn.y, hp.x, hp.y), sh2 = d.zs[j] === 4 ? 0.2 : 0.72; tx += (zn.x + uz.x * 3.4 - tx) * sh2; ty += (zn.y + uz.y * 3.4 - ty) * sh2; }
+          if (zn) { var uz = unit(zn.x, zn.y, hp.x, hp.y), sh2 = j === d.anchor ? 0.2 : 0.92; tx += (zn.x + uz.x * 2.9 - tx) * sh2; ty += (zn.y + uz.y * 2.9 - ty) * sh2; }
         }
       } else {
         var M = this.op(d.assign[j]), pr = d.ppRule[M.slot] || d.pp[M.slot] || d.press;
@@ -923,6 +940,7 @@
       return false;
     }
     if (c.k === 'match') { var k = d.assign.indexOf(c.o); if (k < 0 || c.d == null) return false; d.assign[k] = d.assign[c.d]; d.assign[c.d] = c.o; this.tag(2, this.dp(c.d)); this.ev(this.dp(c.d).name + ' switches onto ' + this.op(c.o).name + '.', 'call'); return true; }
+    if (c.k === 'scheme') { var al = d.alts[c.i]; if (!al) return false; this.setScheme(al); d.shown = d.style; this.ev('Coach changes the defense: ' + (al.name || d.style) + '.', 'call'); return true; }
     if (c.k === 'double') { d.dbl = { o: c.o, until: t + 6 }; d.dblBy = -1; this.ev('Defense sends a double at ' + this.op(c.o).name + '.', 'call'); return true; }
     if (c.k === 'contest') { d.contest[c.d] = t + 3.5; this.tag(10, this.dp(c.d)); this.ev(this.dp(c.d).name + ' crowds his man.', 'call'); return true; }
     if (c.k === 'move') { d.mv[c.d] = { x: clamp(c.x, 1, 49), y: clamp(c.y, 1, 93), until: t + 3.5 }; return true; }
