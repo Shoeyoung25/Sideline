@@ -35,7 +35,7 @@
   var S = fresh(), me = 0, auth = true, sim = null, pend = [null, null];
   var saved = { off: [null, null], def: [null, null] };
   var ui = { localStep: 0, sort: 'ovr', call: null, cool: [0, 0], built: '', fo: null, fd: null, err: '', sentPos: -1, tab: null };
-  var evStart = 0;
+  var evStart = 0, framePrev = null, trail = [], ballTrail = [];
   var frameT = null, viewCur = null, cam = null, evSeen = 0, endHold = 0, startHold = 0, liveFor = 0, acc = 0, lastTs = 0, lastPub = 0;
   var Net = { room: null, r: null, sample: null, guestPeer: null, seen: { pk: 0, pl: 0, lc: 0 }, lastG: '' };
   var custom = loadCustom();
@@ -82,15 +82,16 @@
   function cleanOff(p) {
     p = p || {};
     return { style: oneOf(p.style, ['motion', 'pnr', 'iso', 'post', 'dnk'], 'motion'), tempo: oneOf(p.tempo, ['push', 'set'], 'set'), focus: p.focus == null ? null : slot(p.focus),
-      after: oneOf(p.after, ['crash', 'back'], 'crash'), plays: [cleanPlay((p.plays || [])[0]), cleanPlay((p.plays || [])[1])] };
+      after: 'crash', crash: Array.isArray(p.crash) ? p.crash.map(slot).filter(function (v, i, a) { return a.indexOf(v) === i; }) : null, plays: [cleanPlay((p.plays || [])[0]), cleanPlay((p.plays || [])[1])] };
   }
   function cleanDef(p) {
     p = p || {};
     var m = Array.isArray(p.match) ? p.match.map(slot) : [0, 1, 2, 3, 4], seen = {}, ok = m.length === 5;
     m.forEach(function (v) { if (seen[v]) ok = false; seen[v] = 1; }); if (!ok) m = [0, 1, 2, 3, 4];
-    var pp = {}; if (p.pp) [0, 1, 2, 3, 4].forEach(function (k) { if (p.pp[k] === 'sag' || p.pp[k] === 'tight') pp[k] = p.pp[k]; });
+    var pp = {}; if (p.pp) [0, 1, 2, 3, 4].forEach(function (k) { if (p.pp[k] === 'sag' || p.pp[k] === 'tight' || p.pp[k] === 'deny') pp[k] = p.pp[k]; });
+    var roles = {}; if (p.roles) [0, 1, 2, 3, 4].forEach(function (k) { if (p.roles[k] === 'home' || p.roles[k] === 'help') roles[k] = p.roles[k]; });
     return { style: oneOf(p.style, ['man', 'switch', 'zone', 'mix'], 'man'), match: m, cover: oneOf(p.cover, ['drop', 'switch', 'hedge', 'trap'], 'drop'),
-      press: oneOf(p.press, ['sag', 'normal', 'tight'], 'normal'), pp: pp, help: oneOf(p.help, ['help', 'home'], 'help'), after: oneOf(p.after, ['box', 'leak'], 'box'), rule: cleanRule(p.rule) };
+      press: oneOf(p.press, ['sag', 'normal', 'tight'], 'normal'), pp: pp, help: oneOf(p.help, ['help', 'home'], 'help'), after: 'box', leak: Array.isArray(p.leak) ? p.leak.map(slot).filter(function (v, i, a) { return a.indexOf(v) === i; }).slice(0, 2) : [], roles: roles, dbl: p.dbl == null ? null : slot(p.dbl), rule: cleanRule(p.rule) };
   }
 
   // ---------- game flow (runs on the one phone, or on the host) ----------
@@ -154,7 +155,7 @@
   }
   function styleName(list, id) { var x = list.filter(function (q) { return q.id === id; })[0]; return x ? x.name : id; }
   function descOff(p) { var pl = p.plays.filter(Boolean).map(function (q) { return q.name; }); return (pl.length ? pl.join(', then ') + ', then ' : '') + styleName(BB.OFF_STYLES, p.style).toLowerCase() + (p.focus != null ? ', through ' + names(S.off)[p.focus].tag : ''); }
-  function descDef(p) { var z = p.style === 'zone'; return styleName(BB.DEF_STYLES, p.style) + (z ? '' : ', ' + (p.style === 'switch' ? 'switch' : p.cover) + ' on screens') + ', ' + { sag: 'sagging off', normal: 'normal pressure', tight: 'tight pressure' }[p.press] + ', ' + (p.help === 'help' ? 'helping on drives' : 'staying home') + (p.rule ? '. Emphasis: ' + ruleText(p.rule, names(S.off)) : ''); }
+  function descDef(p) { var z = p.style === 'zone'; return styleName(BB.DEF_STYLES, p.style) + (z ? '' : ', ' + (p.style === 'switch' ? 'switch' : p.cover) + ' on screens') + ', ' + { sag: 'sagging off', normal: 'normal pressure', tight: 'tight pressure' }[p.press] + ', ' + (p.help === 'help' ? 'helping on drives' : 'staying home') + (p.dbl != null ? ', doubling ' + names(S.off)[p.dbl].tag : '') + (p.leak && p.leak.length ? ', ' + p.leak.length + ' leaking out' : '') + (p.rule ? '. Emphasis: ' + ruleText(p.rule, names(S.off)) : ''); }
   function endPossession() {
     S.score = sim.score.slice(); S.pos++; S.box = sim.box.map(function (r) { return r.slice(); });
     S.plog = sim.events.slice(evStart).filter(function (x) { return x.kind !== 'i' || /breaks down/.test(x.txt); }).map(function (x) { return x.txt; }).slice(-7);
@@ -537,7 +538,13 @@
       h('.card', h('h3', { text: 'Plays' }), playSlot(0), playSlot(1)),
       h('.card', h('h3', { text: 'Freelance style' }), chipRow(BB.OFF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note + ' Used whenever no play is running.' })),
       h('.card',
-        field('Run it through', chipRow([[null, 'Nobody']].concat(pl.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.focus, function (v) { f.focus = v; })))),
+        field('Run it through', chipRow([[null, 'Nobody']].concat(pl.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.focus, function (v) { f.focus = v; }))),
+      (function () {
+        if (!Array.isArray(f.crash)) { f.crash = pl.map(function (p, i) { return i; }).sort(function (a, b) { return pl[b].r.size - pl[a].r.size || pl[b].r.reb - pl[a].r.reb; }).slice(0, 3); }
+        var n = f.crash.length;
+        return h('.card', h('h3', { text: 'Rebounding' }), h('.chips', pl.map(function (p, i) { var on = f.crash.indexOf(i) >= 0; return h('button.chip' + (on ? '.on' : ''), { text: (i + 1) + ' ' + p.tag + ' \u00b7 REB ' + p.r.reb, onclick: function () { if (on) f.crash.splice(f.crash.indexOf(i), 1); else f.crash.push(i); render(); } }); })),
+          h('p.note', { text: 'Highlighted players crash the glass on a miss, the rest get back. ' + (n >= 4 ? 'Crashing ' + n + ': more second chances, but if they rebound it they get a head start on their next possession.' : n <= 1 ? 'Almost nobody crashing: no second chances, and nobody leaks out behind you.' : 'Three is the balanced call.') }));
+      })()),
       h('.foot',
         prev ? h('button.btn', { text: 'Same as last time', onclick: function () { ui.fo = null; if (S.mode === 'local') ui.localStep = 2; sendPlan(t, clone(prev)); if (S.mode === 'local') render(); } }) : null,
         h('button.btn.primary', { text: 'Done', onclick: function () { var plan = clone(f); ui.fo = null; if (S.mode === 'local') ui.localStep = 2; sendPlan(t, plan); if (S.mode === 'local') render(); } })));
@@ -595,7 +602,7 @@
         h('.arr', { text: '\u2192' }),
         h('.who', h('b.t' + (1 - t), { text: (o + 1) + ' ' + op.tag }), h('span', { text: op.pos + ' \u00b7 3PT ' + op.r.three + ' \u00b7 Close ' + op.r.ins }),
           h('.edges', edge(d, op).map(function (x) { return h('i.' + x[0], { text: x[1] }); }))),
-        h('button.chip.pp' + (pv ? '.on' : ''), { id: 'pp' + j, text: pv === 'sag' ? 'Sag off' : pv === 'tight' ? 'Tight' : 'Team', 'aria-label': 'Pressure on ' + op.tag, onclick: function (ev) { ev.stopPropagation(); var nx = pv === '' ? 'sag' : pv === 'sag' ? 'tight' : ''; if (nx) f.pp[o] = nx; else delete f.pp[o]; render(); } }));
+        h('button.chip.pp' + (pv ? '.on' : ''), { id: 'pp' + j, text: pv === 'sag' ? 'Sag off' : pv === 'tight' ? 'Tight' : pv === 'deny' ? 'Deny ball' : 'Team', 'aria-label': 'Pressure on ' + op.tag, onclick: function (ev) { ev.stopPropagation(); var nx = pv === '' ? 'sag' : pv === 'sag' ? 'tight' : pv === 'tight' ? 'deny' : ''; if (nx) f.pp[o] = nx; else delete f.pp[o]; render(); } }));
     }
     var ruleIn = h('input#rule', { type: 'text', maxlength: '120', placeholder: 'e.g. double ' + opp[4].tag + ' if he posts up', value: f.ruleText || '', 'aria-label': 'Emphasis rule', oninput: function () { f.ruleText = ruleIn.value; f.rule = null; } });
     function readRule() {
@@ -605,7 +612,7 @@
     }
     var cov = f.style === 'switch' ? 'switch' : f.cover, prevD = saved.def[t];
     function done(src) {
-      var plan = { style: src.style, match: src.match.slice(), cover: src.cover, press: src.press, pp: clone(src.pp || {}), help: src.help, after: src.after, rule: src === f ? f.rule : null };
+      var plan = { style: src.style, match: src.match.slice(), cover: src.cover, press: src.press, pp: clone(src.pp || {}), help: src.help, after: src.after, roles: clone(src.roles || {}), leak: (src.leak || []).slice(), dbl: src.dbl == null ? null : src.dbl, rule: src === f ? f.rule : null };
       if (src === f && !f.rule && (f.ruleText || '').trim()) plan.rule = parseRule(f.ruleText, opp);
       ui.fd = null; if (S.mode === 'local') ui.localStep = 0; sendPlan(t, plan);
     }
@@ -617,13 +624,23 @@
       quickDef(f),
       h('.card', h('h3', { text: 'Scheme' }), chipRow(BB.DEF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note })),
       h('.card', h('h3', { text: 'Matchups' }),
-        h('p.note', { text: manOn ? (ui.swap != null ? 'Now tap the row to trade assignments with.' : 'Tap two rows to swap who they guard. Tap the chip to sag off or play tight on that man.') : 'Saved, but the zone ignores them.' }),
+        h('p.note', { text: manOn ? (ui.swap != null ? 'Now tap the row to trade assignments with.' : 'Tap two rows to swap who they guard. Tap the chip to change how that man is played: sag off, tight, or deny him the ball.') : 'Saved, but the zone ignores them.' }),
         [0, 1, 2, 3, 4].map(matchRow)),
       h('.card',
         field('Ball screens', chipRow([['drop', 'Drop'], ['switch', 'Switch'], ['hedge', 'Hedge'], ['trap', 'Trap']], cov, function (v) { f.cover = v; }),
           { drop: 'Big sits back at the rim. Stops the roll, gives up pull-ups and pops.', 'switch': 'Swap men. Nothing open off the screen, you live with the mismatch.', hedge: 'Big jumps out at the ball, then recovers. The roller is open for a beat.', trap: 'Two on the ball. Forces mistakes, leaves someone open.' }[cov]),
         field('Pressure', chipRow([['sag', 'Sag off'], ['normal', 'Normal'], ['tight', 'Tight']], f.press, function (v) { f.press = v; }), { sag: 'Harder to drive on, easier to shoot over.', normal: 'Balanced.', tight: 'Takes away shots, easier to blow by.' }[f.press]),
         field('Help', chipRow([['help', 'Help on drives'], ['home', 'Stay home']], f.help, function (v) { f.help = v; }), f.help === 'help' ? 'A second defender meets the driver. Kick-outs find shooters.' : 'Everyone stays with his shooter. The driver finishes one on one.')),
+      (function () {
+        f.roles = f.roles || {}; f.leak = f.leak || [];
+        var RL = { '': 'Normal', home: 'Stays home', help: 'Helper' };
+        return h('.card', h('h3', { text: 'Your defenders' }),
+          field('Help roles', h('.chips', mine.map(function (p, j) { var rv = f.roles[j] || ''; return h('button.chip' + (rv ? '.on' : ''), { text: (j + 1) + ' ' + p.tag + ': ' + RL[rv], onclick: function () { var nx = rv === '' ? 'home' : rv === 'home' ? 'help' : ''; if (nx) f.roles[j] = nx; else delete f.roles[j]; render(); } }); })),
+            'Tap to change. Stays home: never leaves his man to help. Helper: roams off his man and is first to meet a drive.'),
+          field('Double team', chipRow([[null, 'Nobody']].concat(opp.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.dbl == null ? null : f.dbl, function (v) { f.dbl = v; }), f.dbl == null ? 'Nobody is doubled unless you call it live.' : 'A second defender goes at ' + opp[f.dbl].tag + ' every time he has the ball. Someone else is open.'),
+          field('Rebounding', h('.chips', mine.map(function (p, j) { var lk = f.leak.indexOf(j) >= 0; return h('button.chip' + (lk ? '.on' : ''), { text: (j + 1) + ' ' + p.tag + (lk ? ': leaks out' : ': boxes out'), onclick: function () { if (lk) f.leak.splice(f.leak.indexOf(j), 1); else if (f.leak.length < 2) f.leak.push(j); render(); } }); })),
+            f.leak.length ? 'Leaking out gives you a head start on your next possession if you get the rebound, and gives them more second chances.' : 'All five box out. Tap a player to send him leaking out instead, up to two.'));
+      })(),
       h('.card', h('h3', { text: 'Emphasis for this possession' }),
         h('.row', h('.grow', ruleIn), h('button.btn.small', { text: 'Read it', onclick: readRule })),
         f.rule ? h('.banner', { text: ruleText(f.rule, opp) }) : (f.ruleMsg ? h('p.note', { text: f.ruleMsg }) : h('p.note', { text: 'Type a rule in your own words, then tap Read it to check how it was understood.' })))),
@@ -836,6 +853,36 @@
       o.list.push(q);
     }
     function addStep() { ed.p.beats.push([]); ed.step = ed.p.beats.length; }
+    // After any change, walk the play from the top: whoever really has the ball takes over the ball actions in later steps,
+    // and a route that now starts somewhere else bends its drawn path to the new start.
+    function starts() { return ed.p.beats.map(function (b, i) { return playState(ed.p, i).pos; }); }
+    function carry(before) {
+      var B = ed.p.beats, fixed = 0, i;
+      for (i = 0; i < B.length; i++) {
+        var b = B[i], h0 = playState(ed.p, i).ball, h1 = h0, k;
+        for (k = b.length - 1; k >= 0; k--) { var a = b[k]; if (a.k === 'pass' || a.k === 'ho') { if (a.s !== h0) { a.s = h0; fixed++; } if (a.to === h0) { b.splice(k, 1); fixed++; } else h1 = a.to; } }
+        var hasPass = b.some(function (a) { return a.k === 'pass'; });
+        for (k = b.length - 1; k >= 0; k--) {
+          var q = b[k];
+          if ((q.k === 'drv' || q.k === 'lay') && q.s !== h1 && !(q.s === h0 && hasPass)) { // the old ball handler's dribble now belongs to the new one
+            if (b.some(function (z) { return z !== q && (z.k === 'drv' || z.k === 'lay') && z.s === h1; })) { b.splice(k, 1); fixed++; continue; }
+            for (var m = b.length - 1; m >= 0; m--) if ((b[m].k === 'mv' || b[m].k === 'scr') && b[m].s === h1) { b.splice(m, 1); if (m < k) k--; }
+            q.s = h1; delete q.w; delete q.c; fixed++;
+          } else if (q.k === 'sh' && q.s !== h1) { q.s = h1; fixed++; }
+          else if (q.k === 'opt') { if (q.s !== h1) { q.s = h1; fixed++; } q.list = q.list.filter(function (z) { return !(z.k === 'pass' && z.to === h1); }); if (!q.list.length) b.splice(k, 1); }
+          else if ((q.k === 'mv' || q.k === 'scr') && q.s === h1 && !b.some(function (z) { return (z.k === 'pass' || z.k === 'ho') && z.to === h1; }) && !hasPass) { q.k = 'drv'; fixed++; } // he has the ball now, so his cut is a dribble
+        }
+      }
+      if (before) { // bend later drawn paths toward their new starting points
+        var after = starts();
+        for (i = 0; i < B.length && i < before.length; i++) B[i].forEach(function (a) {
+          if (!a.w || !(a.k === 'mv' || a.k === 'scr' || a.k === 'drv' || a.k === 'lay')) return;
+          var p0 = before[i][a.s], p1 = after[i][a.s], dx = p1[0] - p0[0], dy = p1[1] - p0[1]; if (Math.abs(dx) + Math.abs(dy) < 0.5) return;
+          var n = a.w.length; a.w = a.w.map(function (pt2, j) { var f2 = 1 - (j + 1) / (n + 1); return [Math.round((pt2[0] + dx * f2) * 2) / 2, Math.round((pt2[1] + dy * f2) * 2) / 2]; });
+        });
+      }
+      return fixed;
+    }
     function along(line, u) { // point at fraction u of a polyline's length
       var tot = 0, seg = [], i; for (i = 1; i < line.length; i++) { var l = Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]); seg.push(l); tot += l; }
       if (tot < 0.01) return line[0]; var want = tot * u; for (i = 0; i < seg.length; i++) { if (want <= seg[i] || i === seg.length - 1) { var f = seg[i] ? Math.min(1, want / seg[i]) : 0; return [line[i][0] + (line[i + 1][0] - line[i][0]) * f, line[i][1] + (line[i + 1][1] - line[i][1]) * f]; } want -= seg[i]; }
@@ -908,7 +955,7 @@
       add(ov, [
         h('.ohead', h('h2', { text: 'Draw a play' }), h('button.btn.small', { text: 'Cancel', onclick: closeOverlay }),
           h('button.btn.small.primary', { text: 'Use play', onclick: function () {
-            trimEmpty(); var out = cleanPlay(ed.p); if (!out) { ed.msg = 'Add at least one step before using the play.'; build(); return; }
+            trimEmpty(); carry(null); var out = cleanPlay(ed.p); if (!out) { ed.msg = 'Add at least one step before using the play.'; build(); return; }
             out.group = undefined; var k = -1; custom.forEach(function (c, i) { if (c.name === out.name) k = i; }); if (k >= 0) custom[k] = out; else custom.push(out); if (custom.length > 24) custom.shift(); saveCustom();
             closeOverlay(); onSave(out);
           } })),
@@ -920,7 +967,7 @@
           h('.chips', tools),
           h('.row', h('.grow', csel),
             h('button.btn.small', { text: 'Preview', onclick: preview }),
-            h('button.btn.small', { text: 'Undo', onclick: function () { ed.msg = ''; ed.concept = null; var b = beat(); if (b && b.length) b.pop(); else if (ed.step > 0) { ed.p.beats.splice(ed.step - 1, 1); ed.step = Math.max(0, ed.step - 1); } build(); } }),
+            h('button.btn.small', { text: 'Undo', onclick: function () { ed.msg = ''; ed.concept = null; var b = beat(); if (b && b.length) b.pop(); else if (ed.step > 0) { ed.p.beats.splice(ed.step - 1, 1); ed.step = Math.max(0, ed.step - 1); } carry(null); build(); } }),
             h('button.btn.small', { text: 'Clear', onclick: function () { ed.p.beats = []; ed.step = 0; ed.msg = ''; ed.concept = null; build(); } })),
           (function () {
             if (ed.step === 0) return null;
@@ -963,6 +1010,11 @@
       redraw();
     }
     function up() {
+      var before = starts(), was = JSON.stringify(ed.p.beats), nSteps = ed.p.beats.length, at = ed.step;
+      upInner();
+      if (JSON.stringify(ed.p.beats) !== was || at === 0) { var fx = carry(before); if (fx && at > 0 && at < nSteps && !ed.msg) ed.msg = 'Later steps were updated to follow this change.'; if (fx) build(); else redraw(); }
+    }
+    function upInner() {
       var d = ed.drag; ed.drag = null; if (!d) return;
       var s = d.s, hold = st().ball, b = beat(), tool = ed.step > 0 && !ed.concept ? eff(d) : ed.tool, wasAuto = ed.tool === 'auto';
       if (ed.concept) {
@@ -1018,7 +1070,7 @@
   var DEFCALLS = [['double', 'Double', ['opp:Tap who to double']], ['match', 'Matchup', ['own:Tap your defender', 'opp:Tap who he guards now']], ['contest', 'Contest', ['own:Tap who crowds his man']],
     ['steal', 'Steal', ['own:Tap who gambles for it']], ['move', 'Move', ['own:Tap your defender', 'spot:Tap where he should stand']], ['watch', 'Watch', ['own:Tap your defender', 'opp:Tap who he helps on']]];
   function buildLive(sc) {
-    ui.built = 'live' + S.pos; ui.call = null; viewCur = null; cam = null; sc.textContent = '';
+    ui.built = 'live' + S.pos; ui.call = null; viewCur = null; cam = null; trail = []; ballTrail = []; framePrev = null; sc.textContent = '';
     function row(team) {
       var isOff = team === S.off, list = isOff ? OFFCALLS : DEFCALLS;
       return h('.calls', { 'data-team': team }, h('span.tag.t' + team, { text: (isOff ? 'Off' : 'Def') }), list.map(function (c) {
@@ -1149,6 +1201,11 @@
       for (i = 0; i < 35; i++) { var isP = (i >= 1 && i <= 3) || (i >= 5 && (i - 5) % 3 < 2); if (isP && Math.abs(fbb.f[i] - fa.f[i]) < 150) f[i] = fa.f[i] + (fbb.f[i] - fa.f[i]) * u; }
       if (u < 0.5 && fa.f[4] !== fbb.f[4]) f[4] = fa.f[4];
     }
+    if (auth && framePrev && framePrev.length === f.length && !sim.done) { // draw between two game ticks, so motion is even at any speed
+      var al = Math.max(0, Math.min(1, acc * 60)), g2 = f.slice();
+      for (i = 0; i < 35; i++) { var isQ = (i >= 1 && i <= 3) || (i >= 5 && (i - 5) % 3 < 2); if (isQ && Math.abs(f[i] - framePrev[i]) < 150) g2[i] = framePrev[i] + (f[i] - framePrev[i]) * al; }
+      f = g2;
+    }
     if (!viewCur || viewCur.length !== f.length) viewCur = f.slice();
     var k = 1;
     for (i = 0; i < f.length; i++) { var isPos = (i >= 1 && i <= 3) || (i >= 5 && i < 35 && (i - 5) % 3 < 2); viewCur[i] = isPos && Math.abs(f[i] - viewCur[i]) < 150 ? viewCur[i] + (f[i] - viewCur[i]) * k : f[i]; }
@@ -1171,6 +1228,22 @@
       ctx.restore();
     }
     drawRoutes(ctx, v, X, Y, s, dpr);
+    // motion trails: where each player just came from, so cuts and drives read at a glance
+    if (trail.length !== 10) { trail = []; for (i = 0; i < 10; i++) trail.push([]); }
+    for (i = 0; i < 10; i++) {
+      var tp = trail[i], wx = v[5 + i * 3] / 10, wy = v[6 + i * 3] / 10, lastT = tp[tp.length - 1];
+      if (!lastT || Math.hypot(lastT[0] - wx, lastT[1] - wy) > 15) tp.length = 0;
+      if (!lastT || Math.hypot(lastT[0] - wx, lastT[1] - wy) > 0.45) tp.push([wx, wy]); if (tp.length > 9) tp.shift();
+      if (tp.length > 2 && Math.hypot(tp[0][0] - wx, tp[0][1] - wy) > 2.2) {
+        for (var tq = 1; tq < tp.length; tq++) { ctx.beginPath(); ctx.moveTo(X(tp[tq - 1][0]), Y(tp[tq - 1][1])); ctx.lineTo(X(tp[tq][0]), Y(tp[tq][1])); ctx.strokeStyle = (i < 5 ? 'rgba(28,95,212,' : 'rgba(210,56,45,') + (0.05 + 0.3 * tq / tp.length) + ')'; ctx.lineWidth = r * (0.35 + 0.9 * tq / tp.length); ctx.lineCap = 'round'; ctx.stroke(); }
+      } else if (lastT && Math.hypot(lastT[0] - wx, lastT[1] - wy) < 0.1 && tp.length > 1) tp.shift();
+    }
+    // an open man glows green: nobody within six feet
+    for (i = 0; i < 5; i++) {
+      var oi2 = S.off * 5 + i, ox2 = v[5 + oi2 * 3] / 10, oy2 = v[6 + oi2 * 3] / 10, nd = 99;
+      for (var dj = 0; dj < 5; dj++) { var di2 = (1 - S.off) * 5 + dj; nd = Math.min(nd, Math.hypot(v[5 + di2 * 3] / 10 - ox2, v[6 + di2 * 3] / 10 - oy2)); }
+      if (nd >= 6 && v[43] >= 2 && Math.abs(oy2 - hp) < 34) { ctx.beginPath(); ctx.arc(X(ox2), Y(oy2), r * 1.5, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(31,157,85,' + Math.min(0.9, 0.35 + (nd - 6) * 0.12) + ')'; ctx.lineWidth = Math.max(2, r * 0.22); ctx.stroke(); }
+    }
     for (i = 0; i < 10; i++) {
       var team = i < 5 ? 0 : 1, sl = i % 5, px = X(v[5 + i * 3] / 10), py = Y(v[6 + i * 3] / 10), fl = v[7 + i * 3];
       if (pick && ((pick === 'own' && team === ui.call.team) || (pick === 'opp' && team !== ui.call.team))) { ctx.beginPath(); ctx.arc(px, py, r * 1.45, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,213,74,.75)'; ctx.fill(); }
@@ -1200,6 +1273,8 @@
     }
     var pb = $('#planbar'); if (pb) { var pt2 = planText(v), ps = pt2[0] + '|' + pt2[1] + '|' + S.mode; if (pb.getAttribute('data-s') !== ps) { pb.setAttribute('data-s', ps); pb.textContent = ''; if (pt2[0]) add(pb, h('span.t' + S.off, { text: pt2[0] })); if (pt2[1]) add(pb, h('span.t' + (1 - S.off), { text: pt2[1] })); if (S.mode !== 'local') add(pb, h('span#link')); } }
     var lk = $('#link'); if (lk) { var ms = auth ? Net.rtt : Net.gap, q = ms == null ? '' : auth ? (ms < 250 ? 'good' : ms < 700 ? 'ok' : 'weak') : (ms < 180 ? 'good' : ms < 400 ? 'ok' : 'weak'), lt = ms == null ? '' : 'Link ' + q; if (lk.textContent !== lt) { lk.textContent = lt; lk.className = q; } }
+    if (holder < 0) { ballTrail.push([bx, by, bz]); if (ballTrail.length > 10) ballTrail.shift(); } else ballTrail.length = 0;
+    for (i = 1; i < ballTrail.length; i++) { ctx.beginPath(); ctx.moveTo(X(ballTrail[i - 1][0]), Y(ballTrail[i - 1][1]) - ballTrail[i - 1][2] * s * 0.45); ctx.lineTo(X(ballTrail[i][0]), Y(ballTrail[i][1]) - ballTrail[i][2] * s * 0.45); ctx.strokeStyle = 'rgba(240,138,36,' + (0.08 + 0.5 * i / ballTrail.length) + ')'; ctx.lineWidth = Math.max(2, 0.5 * s * i / ballTrail.length); ctx.lineCap = 'round'; ctx.stroke(); }
     var gx = X(bx), gy = Y(by), br = Math.max(4 * dpr, 0.75 * s) * (1 + bz * 0.05);
     if (holder >= 0) { gx += r * 0.8; gy += r * 0.8; }
     else { ctx.beginPath(); ctx.ellipse(gx, gy, br, br * 0.5, 0, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fill(); gy -= bz * s * 0.45; }
@@ -1254,7 +1329,7 @@
     if (raw < 0.5) { ui.slow = (ui.slow || 0) * 0.97 + (raw > 0.03 ? 1 : 0) * 0.03; if (ui.slow > 0.5 && !ui.lowRes) ui.lowRes = true; } // a struggling phone draws the court at lower resolution
     if (auth && sim && startHold > 0) { startHold -= dt; if (startHold <= 0) { S.flash = null; if (S.mode === 'host') pubState(); updateLive(); } if (S.mode === 'host' && Net.r && ts - lastPub > 200) { lastPub = ts; sendFrame(); } drawLive(); return; }
     if (auth && sim) {
-      acc += dt * SPEED * (Date.now() < slowUntil ? 0.28 : 1); var n = 0; if (S.slow && Date.now() >= slowUntil) { S.slow = null; updateLive(); } liveFor += dt; // the walk up the floor plays a little faster
+      acc += dt * SPEED * (Date.now() < slowUntil ? 0.28 : 1); var n = 0; if (acc >= 1 / 60) framePrev = frameT; if (S.slow && Date.now() >= slowUntil) { S.slow = null; updateLive(); } liveFor += dt; // the walk up the floor plays a little faster
       try { while (acc >= 1 / 60 && n++ < 6) { sim.step(1 / 60); acc -= 1 / 60; } }
       catch (err) { acc = 0; noteErr(err && err.message, 'sim ' + (err && err.stack ? String(err.stack).split('\n')[1] : '')); replayPossession('That possession hit an error and was restarted.'); return; }
       if (liveFor > 70 && !sim.done) { replayPossession('That possession stalled and was restarted.'); return; }

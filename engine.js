@@ -84,8 +84,13 @@
     offs.forEach(function (q) { var sp = q.slot === inb ? [side * 25.9, 28] : setup[q.slot], w = h2w(offTeam, sp[0], sp[1]); q.x = q.tx = w.x; q.y = q.ty = w.y; q.cvx = q.cvy = 0; });
     var amap = (pdn.match && pdn.match.length === 5 ? pdn.match : [0, 1, 2, 3, 4]);
     this.defs().forEach(function (q) { var O = self.op(amap[q.slot] != null ? amap[q.slot] : q.slot) || self.op(q.slot), u = unit(O.x, O.y, hpI.x, hpI.y), gap = O.slot === inb ? 4.5 : 3.5; q.x = q.tx = clamp(O.x + u.x * gap, 2, 48); q.y = q.ty = O.y + u.y * gap; q.cvx = q.cvy = 0; });
+    var ro = this.runout && this.runout.team === offTeam ? this.runout.lvl : 0; this.runout = null;
+    if (ro) { this.defs().forEach(function (q) { q.stun = 0.35 + 0.3 * ro; }); this.ev('They get out and run off the rebound: the defense is ' + (ro > 1 ? 'scrambling' : 'a step slow') + ' to get set.', 'play'); }
     this.ball.h = this.op(inb).i; this.ball.x = this.op(inb).x; this.ball.y = this.op(inb).y; this.ball.z = 0; this.inbound = false; this.wasInbound = false;
-    this.o = { inb: inb, inbPassed: false, safe: false, style: po.style || 'motion', tempo: 'set', focus: po.focus == null ? null : po.focus, after: po.after || 'crash',
+    var crash = {}, nCrash = 0, cl = Array.isArray(po.crash) ? po.crash : null;
+    if (cl) cl.forEach(function (sl) { if (sl >= 0 && sl < 5 && !crash[sl]) { crash[sl] = true; nCrash++; } });
+    else { offs.slice().sort(function (a, b) { return b.r.size - a.r.size || b.r.reb - a.r.reb; }).slice(0, 3).forEach(function (q) { crash[q.slot] = true; nCrash++; }); }
+    this.o = { crash: crash, nCrash: nCrash, inb: inb, inbPassed: false, safe: false, style: po.style || 'motion', tempo: 'set', focus: po.focus == null ? null : po.focus, after: po.after || 'crash',
       plays: plays, pi: -1, beats: null, bi: 0, bt: 0, minT: 0.3, phase: 'adv', think: 0, handler: hd, setup: setup, t0: this.t, arrT: null,
       free: false, gen: false, forced: false, crossed: true, nextTC: this.t + 0.15, fb: -1, drives: 0, passes: 0, lastBallScreen: -9,
       pendingRead: false, liveQ: null, reset: null, lastStyle: -1, fails: 0, ho: null, opt: null, soc: -1, defer: null, endSh: -1, movers: [] };
@@ -100,7 +105,8 @@
     var zs = {}; defs.forEach(function (q, k) { zs[q.slot] = k; });
     this.d = { style: style, shown: style, assign: assign, cover: style === 'switch' ? 'switch' : (pdn.cover || 'drop'), press: pdn.press || 'normal', pp: pdn.pp || {},
       help: pdn.help || 'help', after: pdn.after || 'box', rule: pdn.rule || null, dbl: null, dblBy: -1, watch: {}, mv: {}, contest: {}, gamble: {},
-      deny: {}, ppRule: {}, ruleSwitch: false, zs: zs };
+      deny: {}, ppRule: {}, ruleSwitch: false, zs: zs, roles: pdn.roles || {}, dblOn: pdn.dbl == null ? -1 : pdn.dbl, leak: {}, nLeak: 0 };
+    var dd0 = this.d; (Array.isArray(pdn.leak) ? pdn.leak : pdn.after === 'leak' ? [defs[0].slot] : []).slice(0, 2).forEach(function (sl) { if (sl >= 0 && sl < 5 && !dd0.leak[sl]) { dd0.leak[sl] = true; dd0.nLeak++; } });
     if (style !== pdn.style) this.d.shown = style;
   };
 
@@ -170,18 +176,17 @@
   Sim.prototype.crashAndBox = function (shooter) {
     var o = this.o, d = this.d, off = this.offTeam, hp = hoop(off), self = this, k;
     var mates = this.offs().filter(function (q) { return q !== shooter; }).sort(function (a, b) { return pd(a, hp) - pd(b, hp); });
-    var nCrash = o.after === 'crash' ? 3 : 1;
-    mates.forEach(function (q, idx) {
-      q.scrUntil = 0; q.scrPending = false;
-      if (idx < nCrash) { var ang = (idx - 1) * 1.1, u = unit(hp.x, hp.y, q.x, q.y); q.tx = hp.x + (u.x * Math.cos(ang) - u.y * Math.sin(ang)) * 5.5; q.ty = hp.y + (u.y * Math.cos(ang) + u.x * Math.sin(ang)) * 5.5; q.sp = 0.95; }
-      else if (o.after === 'back') { var hh = w2h(off, q.x, q.y), w = h2w(off, hh.hx * 0.6, 50 + idx * 5); q.tx = w.x; q.ty = w.y; q.sp = 0.85; }
+    var ci = 0;
+    mates.forEach(function (q, idx0) {
+      q.scrUntil = 0; q.scrPending = false; var isC = o.crash[q.slot], idx = isC ? ci++ : idx0;
+      if (isC) { var ang = (idx - 1) * 1.1, u = unit(hp.x, hp.y, q.x, q.y); q.tx = hp.x + (u.x * Math.cos(ang) - u.y * Math.sin(ang)) * 5.5; q.ty = hp.y + (u.y * Math.cos(ang) + u.x * Math.sin(ang)) * 5.5; q.sp = 0.95; }
+      else { var hh = w2h(off, q.x, q.y), w = h2w(off, hh.hx * 0.7, 36 + idx * 3); q.tx = w.x; q.ty = w.y; q.sp = 0.85; }
     });
-    if (o.after === 'back') { var sh = w2h(off, shooter.x, shooter.y), sw = h2w(off, sh.hx * 0.6, Math.max(sh.hy, 44)); shooter.tx = sw.x; shooter.ty = sw.y; shooter.sp = 0.7; }
+    if (!o.crash[shooter.slot]) { var sh = w2h(off, shooter.x, shooter.y), sw = h2w(off, sh.hx * 0.6, Math.max(sh.hy, 32)); shooter.tx = sw.x; shooter.ty = sw.y; shooter.sp = 0.7; }
     var defs = this.defs(), leaker = null;
-    if (d.after === 'leak') { defs.forEach(function (q) { if (q.stun <= 0 && (!leaker || pd(q, hp) > pd(leaker, hp))) leaker = q; }); }
     defs.forEach(function (q) {
       q.mode = null;
-      if (q === leaker) { var hh = w2h(off, q.x, q.y), w = h2w(off, hh.hx * 0.4, 78); q.tx = w.x; q.ty = w.y; q.sp = 1; return; }
+      if (d.leak[q.slot]) { var hh = w2h(off, q.x, q.y), w = h2w(off, hh.hx * 0.5, 44); q.tx = w.x; q.ty = w.y; q.sp = 1; return; }
       var m = null, bd = 1e9; self.offs().forEach(function (x) { var dd = pd(x, q); if (dd < bd) { bd = dd; m = x; } });
       var u = unit(hp.x, hp.y, m.x, m.y), rr = clamp(u.l - 2.5, 2.5, 6.5);
       q.tx = hp.x + u.x * rr; q.ty = hp.y + u.y * rr; q.sp = 0.95;
@@ -196,8 +201,8 @@
     var tot = 0, w = [];
     this.P.forEach(function (p) {
       var dd = dist(p.x, p.y, bx, by), prox = 1 / (1 + Math.pow(dd / 5.5, 2));
-      var tf = p.team === self.offTeam ? (o.after === 'crash' ? 0.62 : 0.5) : (d.after === 'box' ? 1.3 : 1.12) * (d.style === 'zone' ? 0.88 : 1);
-      if (p === self.leaker) tf = 0.02;
+      var tf = p.team === self.offTeam ? (o.crash[p.slot] ? 0.6 + 0.03 * (o.nCrash - 3) : 0.2) : (1.3 - 0.1 * d.nLeak) * (d.style === 'zone' ? 0.88 : 1);
+      if (p.team !== self.offTeam && d.leak[p.slot]) tf = 0.02;
       var v = Math.pow((p.r.reb * 0.85 + p.r.str * 0.15) / 70, 2.4) * prox * tf * (p.stun > 0 ? 0.6 : 1) + 0.0005;
       w.push(v); tot += v;
     });
@@ -211,6 +216,8 @@
       this.offs().forEach(function (q) { q.driving = false; q.post = false; });
     } else {
       this.ev(p.name + ' rebounds.', 'i');
+      var edge = d.nLeak + Math.max(0, o.nCrash - 3) - (o.nCrash <= 1 ? 1 : 0); // leaking out and beating a heavy crash both mean a head start next time down
+      if (edge >= 1) this.runout = { team: 1 - this.offTeam, lvl: Math.min(3, edge) };
       this.finish('dreb', 0, false);
     }
   };
@@ -554,7 +561,7 @@
       o.endSh = -1;
       if (o.caught >= 0 && H && H.slot === o.caught && !o.opt) { // caught it with nothing drawn next: finish if it is clearly there
         var ci = this.shotInfo(H), atRim = pd(H, hp) < 7;
-        if (ci.ev >= (atRim ? 1.02 : 1.1)) { o.caught = -1; this.tag(6, H); this.ev(H.name + ' is open and ' + (atRim ? 'goes straight up.' : 'lets it fly.'), 'play'); this.shoot(H); return; }
+        if (atRim ? ci.ev >= 1.02 : (ci.ev >= 1.1 && o.beats && o.bi >= o.beats.length - 1)) { o.caught = -1; this.tag(6, H); this.ev(H.name + ' is open and ' + (atRim ? 'goes straight up.' : 'lets it fly.'), 'play'); this.shoot(H); return; }
       }
       o.caught = -1;
       if (o.opt) { if (!o.opt.t) o.opt.t = this.t; if (this.tryOptions()) return; if (this.t - o.opt.t < 0.45) return; o.opt = null; }
@@ -647,6 +654,8 @@
   Sim.prototype.applyRule = function (H) {
     var d = this.d, r = d.rule, hp = hoop(this.offTeam);
     d.deny = {}; d.ppRule = {}; d.ruleSwitch = false; d.ruleDbl = -1;
+    for (var dk in d.pp) if (d.pp[dk] === 'deny') d.deny[dk] = true;
+    if (H && d.dblOn === H.slot) d.ruleDbl = H.slot;
     if (!r) return;
     var cond = false, who = r.wo == null ? null : r.wo;
     if (r.w === 'always') cond = true;
@@ -684,7 +693,7 @@
     var helper = null;
     if (H && H.driving && (d.help === 'help' || zone)) {
       var gH = this.guardOf(H), hb = 16, u0 = unit(hp.x, hp.y, H.x, H.y), sx = hp.x + u0.x * 4.5, sy = hp.y + u0.y * 4.5;
-      for (j = 0; j < 5; j++) { var q1 = this.dp(j); if (q1 === gH || j === d.dblBy || q1.stun > 0) continue; var d1 = dist(q1.x, q1.y, sx, sy); if (d1 < hb) { hb = d1; helper = q1; } }
+      for (j = 0; j < 5; j++) { var q1 = this.dp(j); if (q1 === gH || j === d.dblBy || q1.stun > 0 || d.roles[j] === 'home') continue; var d1 = dist(q1.x, q1.y, sx, sy) * (d.roles[j] === 'help' ? 0.55 : 1); if (d1 < hb) { hb = d1; helper = q1; } }
     }
     // matchup zone: attackers nearest the ball get the nearest free perimeter defender, the biggest man stays home
     var zBall = -1, zMan = {};
@@ -728,7 +737,7 @@
           var dOff = pr === 'sag' ? 3.6 : pr === 'tight' ? 2.2 : pr === 'contest' ? 1.6 : 3.4;
           r = Math.max(1.5, Math.min(dm - dOff, pressing ? 999 : 25));
           var bxp = hp.x + u.x * r, byp = hp.y + u.y * r;
-          var mb = dist(M.x, M.y, bx, by), hf = (d.help === 'help' ? 0.36 : 0.1) * clamp(mb / 22, 0.2, 1) * (pr === 'tight' || pr === 'contest' ? 0.5 : 1) * clamp(1.75 - M.r.three / 66, 0.3, 1.1);
+          var mb = dist(M.x, M.y, bx, by), hf = (d.roles[j] === 'home' ? 0.04 : d.roles[j] === 'help' ? 0.55 : d.help === 'help' ? 0.36 : 0.1) * clamp(mb / 22, 0.2, 1) * (pr === 'tight' || pr === 'contest' ? 0.5 : 1) * clamp(1.75 - M.r.three / 66, 0.3, 1.1);
           if (pressing) hf = 0;
           var ub = unit(hp.x, hp.y, bx, by), hx = hp.x + ub.x * 6, hy = hp.y + ub.y * 6;
           tx = bxp + (hx - bxp) * hf; ty = byp + (hy - byp) * hf;
