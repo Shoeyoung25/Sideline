@@ -219,7 +219,7 @@ p.note.fresh { color: #1f7a45; font-weight: 600; }
    (bypassing the cache) which build is current, reloads if this page is older, and loads the game files
    under that build's name so a stale copy can never be used. */
 (function () {
-  var BUILD = 'Nov 27 05:18'; window.SIDELINE_BUILD = BUILD;
+  var BUILD = 'Nov 27 05:35'; window.SIDELINE_BUILD = BUILD;
   function load(v) {
     var files = ['data.js', 'engine.js', 'app.js'], i = 0;
     (function next() { if (i >= files.length) return; var s = document.createElement('script'); s.src = files[i++] + '?v=' + encodeURIComponent(v); s.onload = next; s.onerror = next; document.body.appendChild(s); })();

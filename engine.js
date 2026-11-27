@@ -166,7 +166,7 @@
 
   Sim.prototype.shoot = function (p) {
     var s = this.shotInfo(p), o = this.o, hp = hoop(this.offTeam), self = this;
-    if (o.tr && !o.tr.why && ((o.beats && !o.gen) || this.t - (o.trT || -9) < 2.6)) { o.tr.shot = true; o.tr.done = true; s.pm = Math.min(0.92, s.pm + (o.jumped === 'shooter' ? -0.06 : o.jumped ? 0 : 0.07) + (o.fresh ? 0.03 : 0)); } // the shot the play was drawn to get: taken in rhythm
+    if (o.tr && !o.tr.why && ((o.beats && !o.gen) || this.t - (o.trT || -9) < 2.6)) { o.tr.shot = true; o.tr.done = true; s.pm = Math.min(0.92, s.pm + (o.jumped === 'shooter' ? -0.06 : o.jumped ? 0 : s.pts === 3 ? 0.04 : 0.07) + (o.fresh ? (s.pts === 3 ? 0.02 : 0.03) : 0)); } // the shot the play was drawn to get: taken in rhythm
     o.beats = null; p.driving = false;
     var label = s.type === 'three' ? 'three' : s.type === 'rim' ? 'at the rim' : s.type === 'short' ? 'in the paint' : 'jumper';
     if (this.rand() < s.pf) {
