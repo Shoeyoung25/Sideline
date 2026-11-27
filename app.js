@@ -653,6 +653,24 @@
       h('p.note', { text: (under ? 'Faint lines: ' + under.p.name + ', a play they have run. ' : '') + (f.spots.length ? f.spots.length + ' of 4 markers placed. Tap a marker to remove it. Each one thins your cover everywhere else a little.' : 'Up to 4 markers. Each one thins your cover everywhere else a little, so mark only what you expect.') }));
   }
   function ftin(inches) { return Math.floor(inches / 12) + '\u2032' + (inches % 12) + '\u2033'; }
+  function tipCard(f, t, onOff) { // one concrete idea from the matchups, applied with a tap
+    var mine = names(t), opp = names(1 - t), tip = null, best = 0;
+    if (onOff) {
+      mine.forEach(function (p, i) { var d = opp[i], dh = p.r.hgt - d.r.hgt, dv = p.r.spd - d.r.spd, sc;
+        if (dh >= 4 && p.r.ins >= 78) { sc = dh * 3 + p.r.ins - 70; if (sc > best) { best = sc; tip = { txt: p.tag + ' is ' + dh + ' in taller than ' + d.tag + '. Post him up.', go: function () { f.style = 'post'; f.focus = i; f.hunt = null; f.sel = 'paint'; } }; } }
+        if (dv >= 9 && p.r.hnd >= 78) { sc = dv * 1.6 + p.r.hnd - 70; if (sc > best) { best = sc; tip = { txt: p.tag + ' is much quicker than ' + d.tag + '. Isolate him.', go: function () { f.style = 'iso'; f.focus = i; f.hunt = null; } }; } }
+        if (p.r.three >= 90) { sc = p.r.three - 74; if (sc > best) { best = sc; tip = { txt: p.tag + ' is a ' + p.r.three + ' three-point shooter. Run him off a screen.', go: function () { var pp = BB.PLAYS.filter(function (q) { return q.id === 'pin'; })[0]; f.style = 'motion'; if (pp) f.plays[0] = cleanPlay(pp); f.sel = 'three'; } }; } }
+      });
+    } else {
+      f.match.forEach(function (o, j) { var d = mine[j], a = opp[o], dh = a.r.hgt - d.r.hgt, sc;
+        if (dh >= 5) { sc = dh * 3; if (sc > best) { best = sc; var k = -1, bd = 99; mine.forEach(function (q, m) { var gap = Math.abs(q.r.hgt - a.r.hgt); if (m !== j && gap < bd) { bd = gap; k = m; } }); tip = { txt: d.tag + ' gives up ' + dh + ' in to ' + a.tag + '. Put ' + mine[k].tag + ' on him.', go: function () { var tmp = f.match[k]; f.match[k] = f.match[j]; f.match[j] = tmp; } }; } }
+        if (a.r.three >= 92 && (f.pp[o] || '') === '') { sc = a.r.three - 78; if (sc > best) { best = sc; tip = { txt: a.tag + ' is a ' + a.r.three + ' three-point shooter. Play him tight.', go: function () { f.pp[o] = 'tight'; } }; } }
+        if (a.r.three < 64 && (f.pp[o] || '') === '') { sc = 70 - a.r.three; if (sc > best) { best = sc; tip = { txt: a.tag + ' cannot shoot from deep. Sag off him.', go: function () { f.pp[o] = 'sag'; } }; } }
+      });
+    }
+    if (!tip) return null;
+    return h('.card.tip', h('.row', h('p.grow', h('b', { text: 'Coach tip: ' }), tip.txt), h('button.btn.small.primary', { text: 'Do it', onclick: function () { tip.go(); ui.quick = null; render(); } })));
+  }
   function advToggle() { return h('button.btn.small.advbtn', { text: ui.adv ? 'Hide fine tuning' : 'Fine tuning: screens, help, doubles, rebounding', onclick: function () { ui.adv = !ui.adv; render(); } }); }
   function scoutCard(t, onOff) { // what the other bench showed the last time it was in this spot
     var sc = S.scout && S.scout[1 - t], mine = S.scout && S.scout[t], txt = sc && (onOff ? sc.def : sc.off), own = mine && (onOff ? mine.off : mine.def);
@@ -733,6 +751,7 @@
       sitLine(),
       scoutCard(t, true),
       playReport(t),
+      tipCard(f, t, true),
       playBoard(),
       sayCard(f, 'say', 'e.g. run horns, get Curry threes, be patient, Jokic and Tatum crash', function (txt) { return sayOffense(txt, f, pl, names(1 - t)); }),
       quickOff(f, t),
@@ -837,6 +856,7 @@
               on ? h('p.note', { text: { pass: 'Defenders play the passing lanes of this play. The drawn passes get covered.', screen: 'Defenders are already moving before the screen arrives. Cutters get no head start.', shooter: 'Whoever the play is built to free gets no clean look.' }[f.sit.take] + ' If they run anything else, your defense is a step behind all possession.' }) : null));
           }));
       })(),
+      tipCard(f, t, false),
       defBoard(f, t),
       quickDef(f),
       tendCard(t, false),

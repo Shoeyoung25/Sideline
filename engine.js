@@ -833,6 +833,8 @@
       }
       var dx = gx - p.x, dy = gy - p.y, l0 = Math.sqrt(dx * dx + dy * dy), ox = p.x, oy = p.y;
       var lf = dist(p.x, p.y, p.tx, p.ty), want = l0 > 0.05 ? Math.min(v, Math.max(2.5, lf * 7)) : 0, ka = 1 - Math.exp(-dt / ((p.team === this.offTeam ? 0.11 : 0.09) * clamp(1.25 - p.r.spd / 250 + ((p.r.wgt || 215) - 215) / 1200, 0.75, 1.35)));
+      var cs0 = Math.sqrt((p.cvx || 0) * (p.cvx || 0) + (p.cvy || 0) * (p.cvy || 0));
+      if (cs0 > 6 && l0 > 0.05 && ((p.cvx * dx + p.cvy * dy) / (cs0 * l0)) < -0.2) want *= 0.5; // reversing at speed: he has to plant and stop before he can go the other way
       var wx = l0 > 0.05 ? dx / l0 * want : 0, wy = l0 > 0.05 ? dy / l0 * want : 0;
       p.cvx = (p.cvx || 0) + (wx - (p.cvx || 0)) * ka; p.cvy = (p.cvy || 0) + (wy - (p.cvy || 0)) * ka;
       var stp = Math.sqrt(p.cvx * p.cvx + p.cvy * p.cvy) * dt;
