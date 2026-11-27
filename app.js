@@ -457,19 +457,20 @@
   }
 
   // ---------- home and lobby ----------
+  function joinAny(code) { // one Join box: a turn-based game if that code is one, otherwise a live game
+    var c = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (c.length < 4 || !Net.room || !Net.room.raw) { joinGame(code); return; }
+    var ref = null; try { ref = Net.room.raw('rooms/t-' + c.toLowerCase() + '/g'); } catch (e) { ref = null; }
+    if (!ref || typeof ref.once !== 'function') { joinGame(code); return; }
+    var done = false, tm = setTimeout(function () { if (!done) { done = true; joinGame(code); } }, 2500);
+    ref.once('value').then(function (sn) { if (done) return; done = true; clearTimeout(tm); if (sn && sn.val()) asOpen(c, false); else joinGame(code); }).catch(function () { if (done) return; done = true; clearTimeout(tm); joinGame(code); });
+  }
   function viewHome() {
     var code = h('input#joincode', { type: 'text', maxlength: '4', placeholder: 'CODE', autocomplete: 'off', autocapitalize: 'characters', 'aria-label': 'Game code' });
     return h('.pad',
       h('div', h('h1', { text: 'Sideline' }), h('p.muted', { text: 'Draw up plays, guess theirs, and watch it play out with this season’s NBA players.' })),
       Net.room && Net.room.raw && asGames().length ? h('.card', h('h3', { text: 'Your turn-based games' }), (asPeek(), h('.glist', asGames().map(function (g) { var st = (ui.peek || {})[g.code];
           return h('button.gline' + (st && st.go ? '.go' : ''), { onclick: function () { asOpen(g.code, false); } }, h('b', { text: g.code }), h('span', { text: TEAM[g.me] + (st && st.sc ? ' \u00b7 ' + st.sc : '') }), h('i', { text: st ? st.txt : '...' })); })))) : null,
-      h('.card', h('h3', { text: 'How a game goes' }), h('.steps',
-        h('div', h('span', { text: 'Draft 5 players each, taking turns.' })),
-        h('div', h('span', { text: 'With the ball: draw a play or pick one. A play they have not seen catches them a step behind.' })),
-        h('div', h('span', { text: 'On defense: set your matchups and, if you dare, sit on one of their plays. Right guess blows it up, wrong guess leaves you leaning.' })),
-        h('div', h('span', { text: 'Tap Done and it runs live. You can make calls and use timeouts while it plays.' })),
-        h('div', h('span', { text: gameLen() + ' possessions each. Tied at the end means one more each.' }))),
-        h('.field', h('label', { text: 'Game length' }), h('.chips', [5, 7, 10].map(function (n) { return h('button.chip' + (gameLen() === n ? '.on' : ''), { text: n + ' each', onclick: function () { try { localStorage.setItem('sideline.len', String(n)); } catch (e) { /* fine */ } render(); } }); })), h('p.note', { text: 'Possessions for each team. In a two phone game the host\u2019s choice is used.' }))),
       (function () {
         var g = savedGame(); if (!g) return null;
         return h('.card', h('h3', { text: 'Game in progress' }), h('p', { text: TEAM[0] + ' ' + g.S.score[0] + ', ' + TEAM[1] + ' ' + g.S.score[1] + '. Possession ' + Math.min(g.S.pos + 1, g.S.total) + ' of ' + g.S.total + (g.S.mode === 'host' ? '. Two phones, code ' + g.S.code + '.' : '. One phone.') }),
@@ -480,17 +481,27 @@
         if (!j || !Net.room || Date.now() - j.t > 6 * 3600 * 1000) return null;
         return h('.card', h('h3', { text: 'You were in a game' }), h('.row', h('button.btn.primary.grow', { text: 'Rejoin game ' + j.code, onclick: function () { joinGame(j.code); } }), h('button.btn', { text: 'Forget', onclick: function () { try { localStorage.removeItem('sideline.join'); } catch (e) { /* fine */ } render(); } })));
       })(),
+      h('.card.modes',
+        h('.mode', h('button.btn.primary', { text: 'Play against the computer', onclick: function () { auth = true; me = 0; S.mode = 'local'; S.ai = 1; startDraft(); S.aiLvl = aiLvl(); } }),
+          h('.chips', [[0, 'Easy'], [1, 'Normal'], [2, 'Hard']].map(function (o) { return h('button.chip' + (aiLvl() === o[0] ? '.on' : ''), { text: 'Computer: ' + o[1], onclick: function () { try { localStorage.setItem('sideline.ai', String(o[0])); } catch (e) { /* fine */ } render(); } }); }))),
+        h('.mode', h('button.btn', { text: 'Two coaches, one phone', onclick: function () { auth = true; me = 0; S.mode = 'local'; S.ai = null; startDraft(); } }), h('p.note', { text: 'Pass the phone between you. Works anywhere.' })),
+        h('.mode.len', h('span', { text: 'Possessions each' }), h('.chips', [5, 7, 10].map(function (n) { return h('button.chip' + (gameLen() === n ? '.on' : ''), { text: String(n), onclick: function () { try { localStorage.setItem('sideline.len', String(n)); } catch (e) { /* fine */ } render(); } }); })))),
+      Net.room ? h('.card.modes', h('h3', { text: 'Play a friend on two phones' }),
+        Net.room.raw ? h('.mode', h('button.btn.primary', { text: 'Start a turn-based game', onclick: function () { var c = '', abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; for (var i = 0; i < 4; i++) c += abc[Math.floor(Math.random() * abc.length)]; asOpen(c, true); } }),
+          h('p.note', { text: 'Each coach locks in when he has a minute. The possession plays itself and you both watch it later.' })) : null,
+        h('.mode', h('button.btn', { text: 'Host a live game', onclick: hostGame }), h('p.note', { text: 'Both phones on at once, with live calls. The host\u2019s game length is used.' })),
+        h('.mode', h('label.note', { 'for': 'joincode', text: 'Have a code from the other coach?' }), h('.row', h('.grow', code), h('button.btn', { text: 'Join', onclick: function () { joinAny(code.value); } }))))
+        : h('p.note', { text: 'Two phone play appears here when this page can reach the game server. One phone works everywhere.' }),
+      ui.err ? h('.banner', { text: ui.err }) : null,
+      fold('how', 'How a game goes', 'Five steps', function () { return h('.steps',
+        h('div', h('span', { text: 'Draft 5 players each, taking turns.' })),
+        h('div', h('span', { text: 'With the ball: draw a play or pick one. A play they have not seen catches them a step behind.' })),
+        h('div', h('span', { text: 'On defense: set your matchups and, if you dare, sit on one of their plays. Right guess blows it up, wrong guess leaves you leaning.' })),
+        h('div', h('span', { text: 'Tap Done and it runs live. You can make calls and use timeouts while it plays.' })),
+        h('div', h('span', { text: gameLen() + ' possessions each. Tied at the end means one more each.' }))); }),
+      fold('set', 'Settings and connection', 'Sound ' + (soundOn() ? 'on' : 'off'), function () { return h('div.foldb',
       h('button.btn.small', { style: 'align-self:flex-start', text: 'Sound: ' + (soundOn() ? 'on' : 'off'), onclick: function () { try { localStorage.setItem('sideline.sound', soundOn() ? 'off' : 'on'); } catch (e) { /* fine */ } render(); } }),
-      h('button.btn.primary', { text: 'Play against the computer', onclick: function () { auth = true; me = 0; S.mode = 'local'; S.ai = 1; startDraft(); S.aiLvl = aiLvl(); } }),
-      h('.chips', [[0, 'Easy'], [1, 'Normal'], [2, 'Hard']].map(function (o) { return h('button.chip' + (aiLvl() === o[0] ? '.on' : ''), { text: 'Computer: ' + o[1], onclick: function () { try { localStorage.setItem('sideline.ai', String(o[0])); } catch (e) { /* fine */ } render(); } }); })),
-      h('button.btn', { text: 'Two coaches, one phone', onclick: function () { auth = true; me = 0; S.mode = 'local'; S.ai = null; startDraft(); } }),
-      Net.room ? h('.card', h('h3', { text: 'Two phones' }),
-        h('p.note', { text: Net.fb ? 'Both coaches open this link on their own phone. One hosts, the other joins with the code.' : 'Both coaches open this page signed in. One hosts, the other joins with the code.' }),
-        h('button.btn', { text: 'Host a live game', onclick: hostGame }),
-        Net.room.raw ? h('button.btn.primary', { text: 'Start a turn-based game', onclick: function () { var c = '', abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; for (var i = 0; i < 4; i++) c += abc[Math.floor(Math.random() * abc.length)]; asOpen(c, true); } }) : null,
-        Net.room.raw ? h('button.btn', { text: 'Open a turn-based game with this code', onclick: function () { var inp = $('#joincode'); asOpen(inp ? inp.value : '', false); } }) : null,
-        h('p.note', { text: 'Turn-based: each coach locks in when he has a minute, the possession plays itself, and you both watch it whenever you open the game. Live: both phones on at once, with live calls.' }),
-        Net.room.ping ? h('button.btn.small', { style: 'align-self:flex-start', text: ui.pingMsg === '...' ? 'Testing...' : 'Test this phone\u2019s connection', onclick: function () {
+        Net.room && Net.room.ping ? h('button.btn.small', { style: 'align-self:flex-start', text: ui.pingMsg === '...' ? 'Testing...' : 'Test this phone\u2019s connection', onclick: function () {
           if (ui.pingMsg === '...') return; ui.pingMsg = '...'; render();
           Net.room.ping(6).then(function (a) { var ok = a.filter(function (x) { return x >= 0; }).sort(function (x, y) { return x - y; }), med = ok.length ? ok[Math.floor(ok.length / 2)] : -1;
             ui.pingMsg = !ok.length ? 'Could not reach the game server. Two phone play will not work on this connection.' : 'Game server: ' + med + ' ms typical, ' + ok[ok.length - 1] + ' ms worst, ' + (a.length - ok.length) + ' of ' + a.length + ' lost. ' + (med < 200 && ok.length === a.length ? 'Good.' : med < 500 ? 'Playable, expect some delay.' : 'Weak. Expect lag.');
@@ -499,9 +510,7 @@
         ui.pingMsg && ui.pingMsg !== '...' ? h('p.note', { text: ui.pingMsg }) : null,
         (function () { var n = null; try { n = JSON.parse(localStorage.getItem('sideline.net') || 'null'); } catch (e) { n = null; } if (!n || Date.now() - n.t > 24 * 3600 * 1000) return null;
           return h('p.note', { text: 'Last two phone game on this phone (' + n.role + ', version ' + n.b + '): ' + (n.role === 'guest' ? (n.n ? 'court updates every ' + Math.round(n.sum / n.n) + ' ms on average, longest wait ' + (n.max / 1000).toFixed(1) + ' s, ' + n.long + ' waits over 1 s, ' + (n.dry || 0) + ' stutters, running ' + (n.dl || 0) + ' ms behind' : 'no court updates received') : 'server round trip about ' + n.rtt + ' ms') + ', ' + Math.max(0, n.rec) + ' reconnects.' }); })(),
-        h('.row', h('.grow', code), h('button.btn', { text: 'Join', onclick: function () { joinGame(code.value); } })))
-        : h('p.note', { text: 'Two phone play appears here when this page can open a live room. One phone works everywhere: pass it between coaches.' }),
-      ui.err ? h('.banner', { text: ui.err }) : null,
+        null); }),
       (function () { var e = null; try { e = JSON.parse(localStorage.getItem('sideline.err') || 'null'); } catch (x) { e = null; } if (!e || Date.now() - e.t > 24 * 3600 * 1000) return null; return h('p.note', { text: 'Last error on this phone (' + new Date(e.t).toLocaleTimeString() + ', version ' + e.b + '): ' + e.m + ' at ' + e.w + '. Send this line to get it fixed.' }); })(),
       h('p.note', { text: 'Overall ratings are anchored to NBA 2K27 and adjusted by 2026-27 stats through Nov 26, 2026. ' + BB.players.length + ' players in the pool.' }),
       window.SIDELINE_BUILD && window.SIDELINE_BUILD.charAt(0) !== '_' ? h('p.note', { text: 'Version ' + window.SIDELINE_BUILD + '. Both phones should show the same one.' }) : null);
@@ -518,6 +527,21 @@
   var SORTS = [['ovr', 'Overall'], ['ins', 'Close'], ['three', '3PT'], ['hnd', 'Handle'], ['pas', 'Passing'], ['pd', 'Perimeter D'], ['rim', 'Interior D'], ['reb', 'Rebound'], ['spd', 'Speed'], ['oiq', 'Off IQ'], ['bdg', 'Badges']];
   var PILLS = [['ins', 'Close'], ['mid', 'Mid'], ['three', '3PT'], ['hnd', 'Handle'], ['pas', 'Pass'], ['pd', 'Per D'], ['rim', 'Int D'], ['spd', 'Speed']];
   var TIERC = ['', 'bz', 'sv', 'gd', 'hf'];
+  function fold(key, title, sum, body) { // a section that stays shut until asked for, showing what is set inside
+    var open = !!(ui.fold && ui.fold[key]);
+    return h('.card.fold' + (open ? '.open' : ''), h('button.foldh', { 'aria-expanded': open ? 'true' : 'false', onclick: function () { ui.fold = ui.fold || {}; ui.fold[key] = !open; render(); } },
+      h('span.ft', { text: title }), h('span.fs', { text: open ? '' : sum }), h('span.chev', { text: open ? '\u2212' : '+' })), open ? body() : null);
+  }
+  function squadStrip(t, mine) { // the five on the floor. Tap one for his badges and ratings
+    var L = names(t), key = 'sq' + (mine ? 1 : 0), op = ui[key];
+    return h('.squad', h('.sqrow', L.map(function (p, i) {
+        var top = BB.badgeList(p)[0];
+        return h('button.sq.t' + t + (op === i ? '.on' : ''), { 'aria-expanded': op === i ? 'true' : 'false', 'aria-label': p.name, onclick: function () { ui[key] = op === i ? null : i; render(); } },
+          h('i', { text: String(i + 1) }), h('b', { text: p.tag }), h('span', { text: p.r.ovr + ' ' + p.pos }), top ? h('em.' + TIERC[top.t], { text: top.d.name }) : null);
+      })),
+      op != null && L[op] ? h('.card.sqsheet', h('.row', h('b.grow', { text: L[op].name + ', ' + ftin(L[op].r.hgt) + ' ' + L[op].pos }), h('button.btn.small', { text: 'Close', onclick: function () { ui[key] = null; render(); } })), attrCard(L[op]))
+        : h('p.note', { text: mine ? 'Your five. Tap a player for his badges and ratings.' : 'Their five. Tap a player to see what he does best.' }));
+  }
   function badgeChips(p, n) { // his strongest badges, as small chips
     var L = BB.badgeList(p), top = L.filter(function (x) { return x.t >= 3; }).slice(0, n);
     if (top.length < n) top = L.slice(0, n);
@@ -550,14 +574,14 @@
       h('.banner', { text: S.mode === 'local' ? (S.ai != null ? (who === S.ai ? 'The computer is picking...' : 'Your pick. Tap a name to see every rating.') : TEAM[who] + ' coach picks. Tap a name to see every rating.') : (myTurn ? 'Your pick. Tap a name to see every rating.' : 'Waiting for ' + TEAM[who] + ' to pick.') }),
       h('.rosters', roster(0), roster(1)),
       h('.chips', [['', 'All'], ['PG,SG', 'Guards'], ['SF,PF', 'Forwards'], ['C', 'Centers']].map(function (o) { return h('button.chip' + ((ui.posf || '') === o[0] ? '.on' : ''), { text: o[1], onclick: function () { ui.posf = o[0]; render(); } }); })),
-      h('div', h('h3', { text: 'Sort by' }), h('.chips.scrollx', { style: 'margin-top:6px' }, SORTS.map(function (s) { return h('button.chip' + (ui.sort === s[0] ? '.on' : ''), { text: s[1], onclick: function () { ui.sort = s[0]; render(); } }); }))),
+      h('div', h('h4', { text: 'Sort by' }), h('.chips.scrollx', { style: 'margin-top:6px' }, SORTS.map(function (s) { return h('button.chip' + (ui.sort === s[0] ? '.on' : ''), { text: s[1], onclick: function () { ui.sort = s[0]; render(); } }); }))),
       h('div', list.map(function (p) {
         var open = ui.open === p.id;
         return h('.prow',
           h('button.pname', { 'aria-expanded': open ? 'true' : 'false', onclick: function () { ui.open = open ? null : p.id; render(); } }, h('.nm', { text: p.name }), h('.sub', { text: p.team + ' \u00b7 ' + p.pos + ' \u00b7 ' + ftin(p.r.hgt) + ' ' + p.r.wgt + ' lb \u00b7 ' + p.s.pts.toFixed(1) + ' pts \u00b7 ' + p.s.trb.toFixed(1) + ' reb \u00b7 ' + p.s.ast.toFixed(1) + ' ast' })),
           h('.row', h('span.ovr', { text: p.r.ovr }), h('button.btn.small.' + (who ? 'red' : 'blue'), { text: 'Draft', disabled: !myTurn, onclick: function () { sendPick(S.mode === 'local' ? who : me, p.id); } })),
           open ? attrCard(p) : h('.rt', PILLS.map(function (r) { var v = p.r[r[0]]; return h('span' + (v >= 85 ? '.hot' : v < 60 ? '.cold' : ''), { text: r[1] + ' ' + v }); })),
-          open ? null : badgeChips(p, 4));
+          open ? null : badgeChips(p, 3));
       })));
   }
 
@@ -781,7 +805,7 @@
   }
   function altCard(f) {
     f.alts = f.alts || []; var opts = ['man', 'switch', 'z23', 'z131', 'z122', 'box1'].concat(f.zc ? ['custom'] : []); f.alts = f.alts.filter(function (k) { return opts.indexOf(k) >= 0; });
-    return h('.card', h('h3', { text: 'Live switches' }), h('.chips', opts.map(function (k) { var on = f.alts.indexOf(k) >= 0, nm = k === 'man' ? 'Man' : k === 'switch' ? 'Switch all' : ZP[k][0]; return h('button.chip' + (on ? '.on' : ''), { text: nm, onclick: function () { if (on) f.alts.splice(f.alts.indexOf(k), 1); else { f.alts.push(k); if (f.alts.length > 2) f.alts.shift(); } render(); } }); })),
+    return h('div.foldb', h('.chips', opts.map(function (k) { var on = f.alts.indexOf(k) >= 0, nm = k === 'man' ? 'Man' : k === 'switch' ? 'Switch all' : ZP[k][0]; return h('button.chip' + (on ? '.on' : ''), { text: nm, onclick: function () { if (on) f.alts.splice(f.alts.indexOf(k), 1); else { f.alts.push(k); if (f.alts.length > 2) f.alts.shift(); } render(); } }); })),
       h('p.note', { text: f.alts.length ? 'During the possession you get a button for each of these and can change defenses on the fly.' : 'Pick up to two defenses to keep in your pocket. You can switch to them with one tap while the possession is live.' }));
   }
   // ---------- turn-based games: each coach locks in whenever he likes, the possession plays itself, both watch it later ----------
@@ -905,7 +929,7 @@
       h('button.btn.primary', { text: 'Tell them it is their turn', onclick: function () { asShare('Your turn in Sideline. Possession ' + (S.pos + 1) + ' of ' + S.total + ', ' + TEAM[0] + ' ' + S.score[0] + ', ' + TEAM[1] + ' ' + S.score[1] + '.'); } }),
       h('button.btn', { text: 'Back to the home screen', onclick: function () { S = fresh(); render(); } })));
   }
-  function advToggle() { return h('button.btn.small.advbtn', { text: ui.adv ? 'Hide fine tuning' : 'Fine tuning: screens, help, doubles, rebounding', onclick: function () { ui.adv = !ui.adv; render(); } }); }
+  function advToggle() { return h('button.disc.advbtn', { 'aria-expanded': ui.adv ? 'true' : 'false', onclick: function () { ui.adv = !ui.adv; render(); } }, h('span.ft', { text: 'Fine tuning' }), h('span.fs', { text: ui.adv ? '' : 'Screens, help, doubles, rebounding' }), h('span.chev', { text: ui.adv ? '\u2212' : '+' })); }
   function scoutCard(t, onOff) { // what the other bench showed the last time it was in this spot
     var sc = S.scout && S.scout[1 - t], mine = S.scout && S.scout[t], txt = sc && (onOff ? sc.def : sc.off), own = mine && (onOff ? mine.off : mine.def);
     if (!txt && !own && !(onOff && S.calls && S.calls[t])) return null;
@@ -992,20 +1016,19 @@
       h('.row', h('span.tag.t' + t, { text: TEAM[t] + ' offense' }), h('span.note.grow', { text: 'You have the ball.' })),
       lastResult(),
       sitLine(),
-      scoutCard(t, true),
+      squadStrip(t, true),
       playReport(t),
       tipCard(f, t, true),
-      badgeCard(t, true),
       playBoard(),
-      sayCard(f, 'say', 'e.g. run horns, get Curry threes, be patient, Jokic and Tatum crash', function (txt) { return sayOffense(txt, f, pl, names(1 - t)); }),
       quickOff(f, t),
+      sayCard(f, 'say', 'e.g. run horns, get Curry threes, be patient, Jokic and Tatum crash', function (txt) { return sayOffense(txt, f, pl, names(1 - t)); }),
+      scoutCard(t, true),
       tendCard(t, true),
-      lineupStrip(t),
-      h('.card', h('h3', { text: 'Freelance style' }), chipRow(BB.OFF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note + ' Used whenever no play is running.' })),
-      h('.card',
+      fold('fstyle', 'Freelance style', st.name, function () { return h('div.foldb', chipRow(BB.OFF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note + ' Used whenever no play is running.' })); }),
+      fold('appr', 'Approach', ({ bal: 'Best look', three: 'Hunt threes', paint: 'Attack the paint' })[f.sel || 'bal'] + ', ' + ({ quick: 'quick shot', normal: 'normal pace', patient: 'work the clock' })[f.pace || 'normal'] + (f.hunt != null ? ', go at ' + names(1 - t)[f.hunt].tag : ''), function () { return h('div.foldb',
         field('Shot selection', chipRow([['bal', 'Best look'], ['three', 'Hunt threes'], ['paint', 'Attack the paint']], f.sel || 'bal', function (v) { f.sel = v; }), { bal: 'Take whatever the defense gives.', three: 'Players pass up twos to find a three. Higher ceiling, more variance.', paint: 'Drives and finishes first. More fouls drawn, fewer threes.' }[f.sel || 'bal']),
         field('Pace', chipRow([['quick', 'Quick shot'], ['normal', 'Normal'], ['patient', 'Work the clock']], f.pace || 'normal', function (v) { f.pace = v; }), { quick: 'First decent look goes up. Good against a set defense you cannot crack.', normal: 'Balanced.', patient: 'Passes up okay looks for great ones. Risks a forced shot late in the clock.' }[f.pace || 'normal']),
-        field('Go at a defender', chipRow([[null, 'Nobody']].concat(names(1 - t).map(function (p, i) { return [i, (i + 1) + ' ' + p.tag + ' \u00b7 D ' + p.r.pd]; })), f.hunt == null ? null : f.hunt, function (v) { f.hunt = v; if (v != null) f.focus = null; }), f.hunt == null ? 'Pick their weakest defender and the ball goes to whoever he is guarding.' : 'Whoever ' + names(1 - t)[f.hunt].tag + ' guards gets the ball. They can hide him by changing matchups.')),
+        field('Go at a defender', chipRow([[null, 'Nobody']].concat(names(1 - t).map(function (p, i) { return [i, (i + 1) + ' ' + p.tag + ' \u00b7 D ' + p.r.pd]; })), f.hunt == null ? null : f.hunt, function (v) { f.hunt = v; if (v != null) f.focus = null; }), f.hunt == null ? 'Pick their weakest defender and the ball goes to whoever he is guarding.' : 'Whoever ' + names(1 - t)[f.hunt].tag + ' guards gets the ball. They can hide him by changing matchups.')); }),
       advToggle(),
       h('.card.adv',
         field('Run it through', chipRow([[null, 'Nobody']].concat(pl.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.focus, function (v) { f.focus = v; }))),
@@ -1069,10 +1092,9 @@
           if (ui.swap == null || ui.swap === j) ui.swap = on ? null : j; else { var k = ui.swap, tmp = f.match[k]; f.match[k] = f.match[j]; f.match[j] = tmp; ui.swap = null; }
           render();
         } },
-        h('.who', h('b.t' + t, { text: (j + 1) + ' ' + d.tag }), h('span', { text: ftin(d.r.hgt) + ' \u00b7 DEF ' + d.r.pd + ' / ' + d.r.rim })),
-        h('.arr', { text: '\u2192' }),
-        h('.who', h('b.t' + (1 - t), { text: (o + 1) + ' ' + op.tag }), h('span', { text: op.pos + ' ' + ftin(op.r.hgt) + ' \u00b7 3PT ' + op.r.three + ' \u00b7 Close ' + op.r.ins }),
-          h('.edges', edge(d, op).map(function (x) { return h('i.' + x[0], { text: x[1] }); }))),
+        h('.mline', h('b.t' + t, { text: (j + 1) + ' ' + d.tag }), h('span.arr', { text: 'guards' }), h('b.t' + (1 - t), { text: (o + 1) + ' ' + op.tag })),
+        h('.mmeta', h('span', { text: 'Defender: ' + ftin(d.r.hgt) + ', perimeter ' + d.r.pd + ', inside ' + d.r.rim }), h('span', { text: 'His man: ' + ftin(op.r.hgt) + ' ' + op.pos + ', three ' + op.r.three + ', close ' + op.r.ins })),
+        h('.edges', edge(d, op).map(function (x) { return h('i.' + x[0], { text: x[1] }); })),
         h('button.chip.pp' + (pv ? '.on' : ''), { id: 'pp' + j, text: pv === 'sag' ? 'Sag off' : pv === 'tight' ? 'Tight' : pv === 'deny' ? 'Deny ball' : 'Team', 'aria-label': 'Pressure on ' + op.tag, onclick: function (ev) { ev.stopPropagation(); var nx = pv === '' ? 'sag' : pv === 'sag' ? 'tight' : pv === 'tight' ? 'deny' : ''; if (nx) f.pp[o] = nx; else delete f.pp[o]; render(); } }));
     }
     var cov = f.style === 'switch' ? 'switch' : f.cover, prevD = saved.def[t];
@@ -1084,14 +1106,14 @@
       h('.row', h('span.tag.t' + t, { text: TEAM[t] + ' defense' }), h('span.note.grow', { text: 'They have the ball.' })),
       lastResult(),
       sitLine(),
-      scoutCard(t, false),
-      sayCard(f, 'rule', 'e.g. zone. or: put ' + mine[0].tag + ' on ' + opp[1].tag + ', deny ' + opp[0].tag + ', double ' + opp[4].tag + ' when he posts up', function (txt) { return sayDefense(txt, f, mine, opp); }),
-      f.rules && f.rules.length ? h('.card', h('h3', { text: 'Standing rules' }), f.rules.map(function (r, n) { return h('.row', h('span.grow', { text: ruleText(r, opp) }), h('button.btn.small', { text: 'Remove', onclick: function () { f.rules.splice(n, 1); render(); } })); })) : null,
+      squadStrip(1 - t, false),
+      tipCard(f, t, false),
       (function () {
         var bk = S.book && S.book[1 - t] ? S.book[1 - t] : [];
         if (f.sit && !bk.some(function (q) { return q.sig === f.sit.sig; })) f.sit = null;
+        if (!bk.length) return null; // nothing to guard until they have run a play
         return h('.card.guard', h('h3', { text: 'Guard their plays' }),
-          !bk.length ? h('p.note', { text: 'Every play they run lands here. Then you can sit on one: guess right and you blow it up, guess wrong and you are caught leaning.' }) : null,
+          h('p.note', { text: 'Plays they have run. Sit on one: guess right and you blow it up, guess wrong and you are caught leaning.' }),
           bk.map(function (q) {
             var cvq = h('canvas', { width: 150, height: 141 }); drawDiagram(cvq, q.p, { beat: -1 }); var on = f.sit && f.sit.sig === q.sig;
             return h('.grow2' + (on ? '.on' : ''), cvq, h('div', h('.nm', { text: q.p.name + ' \u00b7 seen ' + q.n + (q.n > 1 ? ' times' : ' time') }),
@@ -1100,17 +1122,18 @@
               on ? h('p.note', { text: { pass: 'Defenders play the passing lanes of this play. The drawn passes get covered.', screen: 'Defenders are already moving before the screen arrives. Cutters get no head start.', shooter: 'Whoever the play is built to free gets no clean look.' }[f.sit.take] + ' If they run anything else, your defense is a step behind all possession.' }) : null));
           }));
       })(),
-      tipCard(f, t, false),
-      badgeCard(1 - t, false),
-      defBoard(f, t),
-      quickDef(f),
-      tendCard(t, false),
-      h('.card', h('h3', { text: 'Scheme' }), chipRow(BB.DEF_STYLES.map(function (s) { return [s.id, s.id === 'zone' ? 'Zone' : s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: f.style === 'zone' ? 'Pick a shape below, or build your own.' : st.note })),
-      f.style === 'zone' ? zoneCard(f, mine, opp) : null,
-      altCard(f),
       h('.card', h('h3', { text: 'Matchups' }),
         h('p.note', { text: manOn ? (ui.swap != null ? 'Now tap the row to trade assignments with.' : 'Tap two rows to swap who they guard. Tap the chip to change how that man is played: sag off, tight, or deny him the ball.') : 'Saved, but the zone ignores them.' }),
         [0, 1, 2, 3, 4].map(matchRow)),
+      quickDef(f),
+      h('.card', h('h3', { text: 'Scheme' }), chipRow(BB.DEF_STYLES.map(function (s) { return [s.id, s.id === 'zone' ? 'Zone' : s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: f.style === 'zone' ? 'Pick a shape below, or build your own.' : st.note })),
+      f.style === 'zone' ? zoneCard(f, mine, opp) : null,
+      defBoard(f, t),
+      sayCard(f, 'rule', 'e.g. zone. or: put ' + mine[0].tag + ' on ' + opp[1].tag + ', deny ' + opp[0].tag + ', double ' + opp[4].tag + ' when he posts up', function (txt) { return sayDefense(txt, f, mine, opp); }),
+      f.rules && f.rules.length ? h('.card', h('h3', { text: 'Standing rules' }), f.rules.map(function (r, n) { return h('.row', h('span.grow', { text: ruleText(r, opp) }), h('button.btn.small', { text: 'Remove', onclick: function () { f.rules.splice(n, 1); render(); } })); })) : null,
+      scoutCard(t, false),
+      tendCard(t, false),
+      fold('alts', 'Live switches', (f.alts || []).length ? (f.alts || []).map(function (k) { return k === 'man' ? 'Man' : k === 'switch' ? 'Switch all' : ZP[k] ? ZP[k][0] : k; }).join(', ') : 'None picked', function () { return altCard(f); }),
       advToggle(),
       h('.card.adv',
         field('Ball screens', chipRow([['drop', 'Drop'], ['switch', 'Switch'], ['hedge', 'Hedge'], ['trap', 'Trap']], cov, function (v) { f.cover = v; }),
@@ -1470,12 +1493,13 @@
             return h('div', h('.trow', h('span.grow', { text: x.name }), h('b', { text: x.full + ' of ' + x.n + ' ran as drawn' }), h('span.pp' + (x.ppp >= 1.15 ? '.good' : ''), { text: x.ppp.toFixed(2) + ' pts' })),
               x.whyN >= 5 ? h('p.note', { text: 'Broke ' + x.whyN + ' times at step ' + x.at + ': ' + x.why + '. ' + fixFor(x.why) }) : null);
           }), h('p.note', { text: 'Points are per try with these ten players. Freelance offense scores about 1.15. A new play also gets a first-time edge in a real game that this test leaves out.' })) : null,
+          h('.chips', tools),
+          csel,
           (function () { var plE = names(team);
             return h('div', h('.chips', plE.map(function (q, i) { return h('button.chip.who' + (ed.swap === i ? '.on' : ''), { text: (i + 1) + ' ' + q.tag, onclick: function () {
               if (ed.swap == null || ed.swap === i) ed.swap = ed.swap === i ? null : i; else { var had = ed.p.sig, np = swapSlots(ed.p, ed.swap, i); if (had) np.sig = had; else delete np.sig; ed.p = np; ed.msg = plE[ed.swap].tag + ' and ' + q.tag + ' traded places.'; ed.swap = null; ed.test = null; }
               build(); } }); })), h('p.note', { text: ed.swap != null ? 'Now tap who trades places with ' + plE[ed.swap].tag + '.' : 'Your players. Tap two to trade their places in this play.' })); })(),
-          h('.chips', tools),
-          h('.row', h('.grow', csel),
+          h('.row.edacts',
             h('button.btn.small', { text: 'Preview', onclick: preview }),
             h('button.btn.small.primary', { text: 'Test it', onclick: function () { trimEmpty(); carry(null); ed.test = testPlay(ed.p, team); build(); } }),
             h('button.btn.small', { text: 'Undo', onclick: function () { ed.msg = ''; ed.concept = null; var b = beat(); if (b && b.length) b.pop(); else if (ed.step > 0) { ed.p.beats.splice(ed.step - 1, 1); ed.step = Math.max(0, ed.step - 1); } carry(null); build(); } }),
@@ -1490,7 +1514,7 @@
                 .concat([h('button.chip', { text: '+ Layup', onclick: function () { addOpt({ k: 'lay' }); build(); } }), h('button.chip', { text: '+ Shoot', onclick: function () { addOpt({ k: 'sh' }); build(); } })])),
               h('p.note', { text: 'He takes the first one that is open, in this order. If none is open the play moves on to the next step.' }));
           })(),
-          h('p.note', { text: 'Solid arrow: cut. Bar end: screen. Zigzag: drive. Orange dot: layup. Dashed: pass. Orange bars: handoff. Dotted: shot. Numbers: options in order. One step can chain a handoff or pass into a drive, layup or shot.' }),
+          h('details.key', h('summary', { text: 'What the lines mean' }), h('p.note', { text: 'Solid arrow: cut. Bar end: screen. Zigzag: drive. Orange dot: layup. Dashed: pass. Orange bars: handoff. Dotted: shot. Numbers: options in order. One step can chain a handoff or pass into a drive, layup or shot.' })),
           lineupStrip(team)))
       ]);
       var W = Math.min(536, ov.clientWidth - 24), dpr = Math.min(2, window.devicePixelRatio || 1);

@@ -400,8 +400,10 @@
     set('ace', Math.min(tier(k.perd, [84, 88, 91, 94]), tier(k.dc, [80, 85, 90, 95])));
     return out;
   }
-  BB.badgeList = function (p) { // strongest first
-    var b = p.r.b || {}; return Object.keys(b).map(function (id) { return { id: id, t: b[id], d: BB.BADGE[id] }; }).sort(function (x, y) { return y.t - x.t || (y.d.own ? 1 : 0) - (x.d.own ? 1 : 0) || x.d.i - y.d.i; });
+  var RARE = null; // how many players hold each badge at each tier or better: the rarer it is, the more it says about him
+  BB.badgeList = function (p) { // strongest first, and among equals the rarest first
+    if (!RARE) { RARE = {}; BB.players.forEach(function (q) { var bq = q.r.b || {}; for (var id in bq) for (var t = 1; t <= bq[id]; t++) RARE[id + t] = (RARE[id + t] || 0) + 1; }); }
+    var b = p.r.b || {}; return Object.keys(b).map(function (id) { return { id: id, t: b[id], d: BB.BADGE[id], n: RARE[id + b[id]] || 0 }; }).sort(function (x, y) { return y.t - x.t || x.n - y.n || x.d.i - y.d.i; });
   };
 
   // The 2K27 attribute each game rating leans on. Each is rescaled to the spread the game engine was tuned for, then blended 65 percent 2K, 35 percent this season's numbers.
