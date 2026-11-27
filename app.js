@@ -108,7 +108,7 @@
     changed();
   }
   function startMatch() {
-    S.score = [0, 0]; S.pos = 0; S.total = 14; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
+    S.score = [0, 0]; S.pos = 0; S.total = 14; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.calls = [null, null]; S.clutch = false; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
@@ -145,11 +145,14 @@
     pend[coach] = coach === S.off ? cleanOff(plan) : cleanDef(plan); S.done[coach] = true;
     if (S.done[0] && S.done[1]) {
       sim.lastShot = null; evStart = sim.events.length;
+      var po = pend[S.off], ck = (po.plays.filter(Boolean)[0] || {}).name || 'style:' + po.style; S.calls = S.calls || [null, null];
+      var lc = S.calls[S.off]; S.calls[S.off] = lc && lc.k === ck ? { k: ck, n: lc.n + 1 } : { k: ck, n: 1 }; po.read = Math.min(2, S.calls[S.off].n - 1);
+      S.clutch = S.total - S.pos <= 4 && Math.abs(S.score[0] - S.score[1]) <= 4; sim.clutch = S.clutch;
       sim.startPossession(S.off, pend[S.off], pend[1 - S.off]);
       S.now = { off: descOff(pend[S.off]), def: descDef(pend[1 - S.off]), n: pend[S.off].plays.filter(Boolean).map(function (q) { return q.beats.length; }), nm: pend[S.off].plays.filter(Boolean).map(function (q) { return q.name; }), st: styleName(BB.OFF_STYLES, pend[S.off].style) };
       var look = { man: 'man to man', 'switch': 'man to man, switching everything', zone: 'a 2-3 zone' }[sim.d.style];
       sim.ev(TEAM[1 - S.off] + ' is in ' + look + '.', 'i');
-      S.slow = null; slowUntil = 0; slowCool = [0, 0]; S.phase = 'live'; S.flash = { txt: TEAM[S.off] + ' ball', team: S.off, start: 1 }; startHold = 1.1; liveFor = 0; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null; frameT = sim.frame();
+      S.slow = null; slowUntil = 0; slowCool = [0, 0]; S.phase = 'live'; S.flash = { txt: S.clutch ? 'Clutch time' : TEAM[S.off] + ' ball', team: S.off, start: 1 }; startHold = 1.1; liveFor = 0; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null; frameT = sim.frame();
     }
     changed();
   }
@@ -360,6 +363,7 @@
     else if (S.phase === 'draft') add(sc, viewDraft());
     else if (S.phase === 'coach') add(sc, viewCoach());
     else if (S.phase === 'final') add(sc, viewFinal());
+    sc.classList.toggle('basic', S.phase === 'coach' && !ui.adv);
     sc.scrollTop = ui.lastKey === key ? keep : 0; ui.lastKey = key;
   }
   function renderHud() {
@@ -372,6 +376,11 @@
     function tm(t) { return h('.tm' + (t ? '.r' : '') + ((S.phase === 'coach' || S.phase === 'live') && S.off === t ? '.has' : ''), t ? [h('span.ballmark'), h('span', { text: TEAM[t] }), h('b', { text: S.score[t] })] : [h('b', { text: S.score[t] }), h('span', { text: TEAM[t] }), h('span.ballmark')]); }
     var a = tm(0), b = tm(1); a.style.color = '#8fb6ff'; b.style.color = '#ff9a90';
     add(hud, [a, mid, b]);
+    if (S.phase === 'coach' || S.phase === 'live' || S.phase === 'final') {
+      var rem = Math.max(0, S.total - S.pos), r0 = S.off === 0 ? Math.ceil(rem / 2) : Math.floor(rem / 2), r1 = rem - r0, dS = S.score[0] - S.score[1];
+      var z = (dS + 1.15 * (r0 - r1)) / (1.25 * Math.sqrt(rem) + 0.35), p0 = rem === 0 && dS !== 0 ? (dS > 0 ? 1 : 0) : 1 / (1 + Math.exp(-1.7 * z));
+      add(hud, h('.wp', { title: 'Win chance', 'aria-label': TEAM[0] + ' win chance ' + Math.round(p0 * 100) + ' percent' }, h('i', { style: 'width:' + (p0 * 100).toFixed(1) + '%' }), h('span', { text: Math.round(p0 * 100) + '%' }), h('span.r', { text: Math.round((1 - p0) * 100) + '%' })));
+    }
   }
 
   // ---------- home and lobby ----------
@@ -481,12 +490,14 @@
       return h('button.chip' + (ui.quick === 'd' + q[0] ? '.on' : ''), { text: q[0], onclick: function () { f.style = q[1]; f.cover = q[2]; f.press = q[3]; f.help = q[4]; ui.quick = 'd' + q[0]; render(); } });
     })), h('p.note', { text: 'One tap sets the scheme below. Your matchups stay as they are.' }));
   }
+  function advToggle() { return h('button.btn.small.advbtn', { text: ui.adv ? 'Hide fine tuning' : 'Fine tuning: screens, help, doubles, rebounding', onclick: function () { ui.adv = !ui.adv; render(); } }); }
   function scoutCard(t, onOff) { // what the other bench showed the last time it was in this spot
     var sc = S.scout && S.scout[1 - t], mine = S.scout && S.scout[t], txt = sc && (onOff ? sc.def : sc.off), own = mine && (onOff ? mine.off : mine.def);
-    if (!txt && !own) return null;
+    if (!txt && !own && !(onOff && S.calls && S.calls[t])) return null;
     return h('.card.scout', h('h3', { text: 'Scouting' }),
       txt ? h('p', h('b', { text: onOff ? 'Their defense last time: ' : 'Their offense last time: ' }), txt + '.') : null,
-      own ? h('p.note', { text: (onOff ? 'You ran: ' : 'You played: ') + own + '.' }) : null);
+      own ? h('p.note', { text: (onOff ? 'You ran: ' : 'You played: ') + own + '.' }) : null,
+      onOff && S.calls && S.calls[t] && S.calls[t].n >= 1 ? h('p.note' + (S.calls[t].n >= 2 ? '.warn' : ''), { text: 'Your last ' + (S.calls[t].n > 1 ? S.calls[t].n + ' calls were' : 'call was') + ' ' + S.calls[t].k.replace('style:', 'freelance ') + '. Call it again and the defense reads it ' + (S.calls[t].n >= 2 ? 'much ' : '') + 'faster: passes get covered and cutters get no head start.' }) : null);
   }
   function lastResult() {
     if (!S.flash || S.flash.start) return h('.banner', { text: lastLine() });
@@ -537,12 +548,13 @@
       lineupStrip(t),
       h('.card', h('h3', { text: 'Plays' }), playSlot(0), playSlot(1)),
       h('.card', h('h3', { text: 'Freelance style' }), chipRow(BB.OFF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note + ' Used whenever no play is running.' })),
-      h('.card',
+      advToggle(),
+      h('.card.adv',
         field('Run it through', chipRow([[null, 'Nobody']].concat(pl.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.focus, function (v) { f.focus = v; }))),
       (function () {
         if (!Array.isArray(f.crash)) { f.crash = pl.map(function (p, i) { return i; }).sort(function (a, b) { return pl[b].r.size - pl[a].r.size || pl[b].r.reb - pl[a].r.reb; }).slice(0, 3); }
         var n = f.crash.length;
-        return h('.card', h('h3', { text: 'Rebounding' }), h('.chips', pl.map(function (p, i) { var on = f.crash.indexOf(i) >= 0; return h('button.chip' + (on ? '.on' : ''), { text: (i + 1) + ' ' + p.tag + ' \u00b7 REB ' + p.r.reb, onclick: function () { if (on) f.crash.splice(f.crash.indexOf(i), 1); else f.crash.push(i); render(); } }); })),
+        return h('.card.adv', h('h3', { text: 'Rebounding' }), h('.chips', pl.map(function (p, i) { var on = f.crash.indexOf(i) >= 0; return h('button.chip' + (on ? '.on' : ''), { text: (i + 1) + ' ' + p.tag + ' \u00b7 REB ' + p.r.reb, onclick: function () { if (on) f.crash.splice(f.crash.indexOf(i), 1); else f.crash.push(i); render(); } }); })),
           h('p.note', { text: 'Highlighted players crash the glass on a miss, the rest get back. ' + (n >= 4 ? 'Crashing ' + n + ': more second chances, but if they rebound it they get a head start on their next possession.' : n <= 1 ? 'Almost nobody crashing: no second chances, and nobody leaks out behind you.' : 'Three is the balanced call.') }));
       })()),
       h('.foot',
@@ -626,7 +638,8 @@
       h('.card', h('h3', { text: 'Matchups' }),
         h('p.note', { text: manOn ? (ui.swap != null ? 'Now tap the row to trade assignments with.' : 'Tap two rows to swap who they guard. Tap the chip to change how that man is played: sag off, tight, or deny him the ball.') : 'Saved, but the zone ignores them.' }),
         [0, 1, 2, 3, 4].map(matchRow)),
-      h('.card',
+      advToggle(),
+      h('.card.adv',
         field('Ball screens', chipRow([['drop', 'Drop'], ['switch', 'Switch'], ['hedge', 'Hedge'], ['trap', 'Trap']], cov, function (v) { f.cover = v; }),
           { drop: 'Big sits back at the rim. Stops the roll, gives up pull-ups and pops.', 'switch': 'Swap men. Nothing open off the screen, you live with the mismatch.', hedge: 'Big jumps out at the ball, then recovers. The roller is open for a beat.', trap: 'Two on the ball. Forces mistakes, leaves someone open.' }[cov]),
         field('Pressure', chipRow([['sag', 'Sag off'], ['normal', 'Normal'], ['tight', 'Tight']], f.press, function (v) { f.press = v; }), { sag: 'Harder to drive on, easier to shoot over.', normal: 'Balanced.', tight: 'Takes away shots, easier to blow by.' }[f.press]),
@@ -634,14 +647,14 @@
       (function () {
         f.roles = f.roles || {}; f.leak = f.leak || [];
         var RL = { '': 'Normal', home: 'Stays home', help: 'Helper' };
-        return h('.card', h('h3', { text: 'Your defenders' }),
+        return h('.card.adv', h('h3', { text: 'Your defenders' }),
           field('Help roles', h('.chips', mine.map(function (p, j) { var rv = f.roles[j] || ''; return h('button.chip' + (rv ? '.on' : ''), { text: (j + 1) + ' ' + p.tag + ': ' + RL[rv], onclick: function () { var nx = rv === '' ? 'home' : rv === 'home' ? 'help' : ''; if (nx) f.roles[j] = nx; else delete f.roles[j]; render(); } }); })),
             'Tap to change. Stays home: never leaves his man to help. Helper: roams off his man and is first to meet a drive.'),
           field('Double team', chipRow([[null, 'Nobody']].concat(opp.map(function (p, i) { return [i, (i + 1) + ' ' + p.tag]; })), f.dbl == null ? null : f.dbl, function (v) { f.dbl = v; }), f.dbl == null ? 'Nobody is doubled unless you call it live.' : 'A second defender goes at ' + opp[f.dbl].tag + ' every time he has the ball. Someone else is open.'),
           field('Rebounding', h('.chips', mine.map(function (p, j) { var lk = f.leak.indexOf(j) >= 0; return h('button.chip' + (lk ? '.on' : ''), { text: (j + 1) + ' ' + p.tag + (lk ? ': leaks out' : ': boxes out'), onclick: function () { if (lk) f.leak.splice(f.leak.indexOf(j), 1); else if (f.leak.length < 2) f.leak.push(j); render(); } }); })),
             f.leak.length ? 'Leaking out gives you a head start on your next possession if you get the rebound, and gives them more second chances.' : 'All five box out. Tap a player to send him leaking out instead, up to two.'));
       })(),
-      h('.card', h('h3', { text: 'Emphasis for this possession' }),
+      h('.card.adv', h('h3', { text: 'Emphasis for this possession' }),
         h('.row', h('.grow', ruleIn), h('button.btn.small', { text: 'Read it', onclick: readRule })),
         f.rule ? h('.banner', { text: ruleText(f.rule, opp) }) : (f.ruleMsg ? h('p.note', { text: f.ruleMsg }) : h('p.note', { text: 'Type a rule in your own words, then tap Read it to check how it was understood.' })))),
       h('.foot',
@@ -1122,7 +1135,7 @@
     updateLive();
   }
 
-  var TAGS = { 1: 'Screened', 2: 'Switch', 3: 'Beat his man', 4: 'Cut off', 5: 'Double', 6: 'Open', 7: 'Denied', 8: 'Trap', 9: 'Cutting', 10: 'Crowding', 11: 'Shading', 12: 'Gambling', 13: 'Screen' };
+  var TAGS = { 1: 'Screened', 2: 'Switch', 3: 'Beat his man', 4: 'Cut off', 5: 'Double', 6: 'Open', 7: 'Denied', 8: 'Trap', 9: 'Cutting', 10: 'Crowding', 11: 'Shading', 12: 'Gambling', 13: 'Screen', 14: 'Heating up' };
   function livePlays() { // the plays this phone is allowed to see drawn on the court
     if (auth) return pend[S.off] ? pend[S.off].plays.filter(Boolean) : [];
     if (me === S.off && saved.off[me]) return cleanOff(saved.off[me]).plays.filter(Boolean);
@@ -1160,7 +1173,7 @@
     for (var k = 44; k < 53; k += 3) {
       var c = v[k], txt = TAGS[c]; if (!txt) continue;
       var i = v[k + 1], age = v[k + 2] / 10, al = Math.max(0, Math.min(1, (1.4 - age) / 0.4)), px = X(v[5 + i * 3] / 10), py = Y(v[6 + i * 3] / 10) - r - 11 * dpr - age * 5 * dpr, w = ctx.measureText(txt).width / 2 + 6 * dpr, hh = 8.5 * dpr;
-      var good = c === 1 || c === 3 || c === 6 || c === 9 || c === 13;
+      var good = c === 1 || c === 3 || c === 6 || c === 9 || c === 13 || c === 14;
       ctx.globalAlpha = al; ctx.fillStyle = good ? '#1f9d55' : '#18202e'; ctx.beginPath();
       if (ctx.roundRect) ctx.roundRect(px - w, py - hh, w * 2, hh * 2, hh); else ctx.rect(px - w, py - hh, w * 2, hh * 2);
       ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(txt.toUpperCase(), px, py + dpr * 0.5); ctx.globalAlpha = 1;
@@ -1360,6 +1373,12 @@
       h('span.tag.t' + w, { text: TEAM[w] + ' wins' }),
       h('.big', { text: S.score[0] + ' - ' + S.score[1] }),
       h('p.muted', { text: S.ot ? 'Decided in overtime.' : 'Final after 14 possessions.' }),
+      (function () {
+        if (!S.box) return null; var best = -1, bv = -99; S.box.forEach(function (b, i) { var val = b[0] + 0.7 * b[1] + 0.7 * b[2] + b[5] - b[6] + (Math.floor(i / 5) === w ? 1.5 : 0); if (val > bv) { bv = val; best = i; } });
+        var bb = S.box[best], pl2 = P(S.lineup[Math.floor(best / 5)][best % 5]), m = Math.abs(S.score[0] - S.score[1]);
+        var head = S.ot ? TEAM[w] + ' survive in overtime' : m <= 2 ? TEAM[w] + ' hang on at the wire' : m >= 8 ? TEAM[w] + ' run away with it' : TEAM[w] + ' close it out';
+        return h('.card.mvp', h('h3', { text: head }), h('p', h('b.t' + Math.floor(best / 5), { text: 'Player of the game: ' + pl2.name }), h('br'), bb[0] + ' pts, ' + bb[1] + ' reb, ' + bb[2] + ' ast, ' + bb[3] + '/' + bb[4] + ' shooting.'));
+      })(),
       S.box ? h('.card', [0, 1].map(function (t) {
         return h('table.box', h('thead', h('tr', h('th', h('span.tag.t' + t, { text: TEAM[t] })), ['PTS', 'REB', 'AST', 'FG', 'STL', 'TO'].map(function (x) { return h('th', { text: x }); }))),
           h('tbody', S.lineup[t].map(function (id, i) { var b = S.box[t * 5 + i] || [0, 0, 0, 0, 0, 0, 0]; return h('tr', h('td', { text: P(id).tag }), [b[0], b[1], b[2], b[3] + '/' + b[4], b[5], b[6]].map(function (x) { return h('td', { text: x }); })); })));
