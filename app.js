@@ -99,7 +99,7 @@
   // ---------- game flow (runs on the one phone, or on the host) ----------
   function changed() { if (S.mode === 'host') pubState(); render(); }
   function taken(id) { return S.picks[0].indexOf(id) >= 0 || S.picks[1].indexOf(id) >= 0; }
-  function startDraft() { clearGame(); var keep = { mode: S.mode, code: S.code, guest: S.guest, ai: S.ai }; S = fresh(); S.mode = keep.mode; S.code = keep.code; S.guest = keep.guest; S.ai = keep.mode === 'local' && keep.ai != null ? keep.ai : null; S.phase = 'draft'; sim = null; saved = { off: [null, null], def: [null, null] }; changed(); }
+  function startDraft() { clearGame(); var keep = { mode: S.mode, code: S.code, guest: S.guest, ai: S.ai, aiLvl: S.aiLvl }; S = fresh(); S.mode = keep.mode; S.code = keep.code; S.guest = keep.guest; S.ai = keep.mode === 'local' && keep.ai != null ? keep.ai : null; S.aiLvl = keep.aiLvl; S.phase = 'draft'; sim = null; saved = { off: [null, null], def: [null, null] }; changed(); }
   // ---------- the computer coach ----------
   function rnd(a) { return a[Math.floor(Math.random() * a.length)]; }
   function aiDraft() {
@@ -111,19 +111,22 @@
       if (pool.length) { doPick(S.ai, pool[0][1]); changed(); }
     }, 650);
   }
+  function aiLvl() { try { var v = +localStorage.getItem('sideline.ai'); return v === 0 || v === 2 ? v : 1; } catch (e) { return 1; } }
   function aiPlan(t) {
+    var lv = S.aiLvl == null ? 1 : S.aiLvl;
     if (t === S.off) { // offense: mostly set plays, never the same call three times, shot diet to suit the roster
       var pl = names(t), last = S.calls && S.calls[t] ? S.calls[t].k : '', seenMe = (S.seenP && S.seenP[t]) || {}, opts = BB.PLAYS.filter(function (p) { return p.name !== last; });
-      var freshP = opts.filter(function (p) { return !seenMe[playSig(p)]; }), play = Math.random() < 0.72 ? cleanPlay(rnd(freshP.length && Math.random() < 0.7 ? freshP : opts)) : null;
+      var freshP = opts.filter(function (p) { return !seenMe[playSig(p)]; }), play = Math.random() < [0.4, 0.72, 0.85][lv] ? cleanPlay(rnd(freshP.length && Math.random() < 0.7 ? freshP : opts)) : null;
+      if (lv === 2 && S.tend && S.tend[t]) { var To = S.tend[t].o, bestK = null, bestV = 1.25; Object.keys(To).forEach(function (k) { if (k !== last && To[k].n >= 1 && To[k].pts / To[k].n > bestV) { bestV = To[k].pts / To[k].n; bestK = k; } }); var bp = bestK && BB.PLAYS.filter(function (q) { return q.name === bestK; })[0]; if (bp && Math.random() < 0.5) play = cleanPlay(Math.random() < 0.5 ? flipPlay(bp) : bp); } // the hard coach goes back to what worked, often flipped
       var three = pl.reduce(function (a, p) { return a + p.r.three; }, 0) / 5, star = 0; pl.forEach(function (p, i) { if (p.r.ovr > pl[star].r.ovr) star = i; });
       var styles = ['motion', 'pnr', 'iso', 'post', 'dnk'].filter(function (x) { return 'style:' + x !== last; }), opp = names(1 - t), weak = 0; opp.forEach(function (p, i) { if (p.r.pd < opp[weak].r.pd) weak = i; });
       return { style: rnd(styles), plays: [play, null], focus: !play && Math.random() < 0.5 ? star : null, hunt: !play && Math.random() < 0.25 ? weak : null, sel: three >= 82 && Math.random() < 0.5 ? 'three' : Math.random() < 0.25 ? 'paint' : 'bal', pace: rnd(['normal', 'normal', 'quick', 'patient']), crash: null };
     }
     var them = names(1 - t), bk = (S.book && S.book[1 - t]) || [], sit = null, pp = {}, best = 0;
-    if (bk.length && Math.random() < 0.42) { var tot = bk.reduce(function (a, q) { return a + q.n; }, 0), roll = Math.random() * tot, pick = bk[0]; bk.some(function (q) { roll -= q.n; if (roll <= 0) { pick = q; return true; } return false; }); sit = { sig: pick.sig, take: rnd(['pass', 'screen', 'shooter']) }; }
+    if (bk.length && Math.random() < [0.12, 0.42, 0.62][lv]) { var tot = bk.reduce(function (a, q) { return a + q.n; }, 0), roll = Math.random() * tot, pick = bk[0]; bk.some(function (q) { roll -= q.n; if (roll <= 0) { pick = q; return true; } return false; }); sit = { sig: pick.sig, take: rnd(['pass', 'screen', 'shooter']) }; }
     them.forEach(function (p, i) { if (p.r.three >= 90) pp[i] = 'tight'; else if (p.r.three < 66) pp[i] = 'sag'; if (p.r.ovr > them[best].r.ovr) best = i; });
     var st = rnd(['man', 'man', 'man', 'man', 'switch', 'zone', 'zone', 'mix']);
-    return { style: st, match: [0, 1, 2, 3, 4], cover: rnd(['drop', 'drop', 'hedge', 'switch', 'trap']), press: rnd(['normal', 'normal', 'tight', 'sag']), pp: pp, help: rnd(['help', 'help', 'home']), dbl: Math.random() < 0.15 ? best : null, roles: {}, leak: Math.random() < 0.15 ? [0] : [], rules: [], spots: Math.random() < 0.35 ? [{ k: rnd(['steal', 'wall', 'trap']), x: rnd([-17, -8, 0, 8, 17]), y: rnd([8, 16, 24]) }] : [], sit: sit };
+    return { style: st, match: [0, 1, 2, 3, 4], cover: rnd(['drop', 'drop', 'hedge', 'switch', 'trap']), press: rnd(['normal', 'normal', 'tight', 'sag']), pp: pp, help: rnd(['help', 'help', 'home']), dbl: Math.random() < 0.15 ? best : null, roles: {}, leak: Math.random() < 0.15 ? [0] : [], rules: [], spots: Math.random() < [0.1, 0.35, 0.5][lv] ? [{ k: rnd(['steal', 'wall', 'trap']), x: rnd([-17, -8, 0, 8, 17]), y: rnd([8, 16, 24]) }] : [], sit: sit };
   }
   function tname(t) { return S.ai === t ? 'Computer' : TEAM[t]; }
   function aiCoach() { if (S.ai == null || S.phase !== 'coach' || S.done[S.ai]) return; var at = S.rd; setTimeout(function () { if (S.ai != null && S.phase === 'coach' && S.rd === at && !S.done[S.ai]) submitPlan(S.ai, aiPlan(S.ai)); }, 50); }
@@ -459,7 +462,8 @@
         return h('.card', h('h3', { text: 'You were in a game' }), h('.row', h('button.btn.primary.grow', { text: 'Rejoin game ' + j.code, onclick: function () { joinGame(j.code); } }), h('button.btn', { text: 'Forget', onclick: function () { try { localStorage.removeItem('sideline.join'); } catch (e) { /* fine */ } render(); } })));
       })(),
       h('button.btn.small', { style: 'align-self:flex-start', text: 'Sound: ' + (soundOn() ? 'on' : 'off'), onclick: function () { try { localStorage.setItem('sideline.sound', soundOn() ? 'off' : 'on'); } catch (e) { /* fine */ } render(); } }),
-      h('button.btn.primary', { text: 'Play against the computer', onclick: function () { auth = true; me = 0; S.mode = 'local'; S.ai = 1; startDraft(); } }),
+      h('button.btn.primary', { text: 'Play against the computer', onclick: function () { auth = true; me = 0; S.mode = 'local'; S.ai = 1; startDraft(); S.aiLvl = aiLvl(); } }),
+      h('.chips', [[0, 'Easy'], [1, 'Normal'], [2, 'Hard']].map(function (o) { return h('button.chip' + (aiLvl() === o[0] ? '.on' : ''), { text: 'Computer: ' + o[1], onclick: function () { try { localStorage.setItem('sideline.ai', String(o[0])); } catch (e) { /* fine */ } render(); } }); })),
       h('button.btn', { text: 'Two coaches, one phone', onclick: function () { auth = true; me = 0; S.mode = 'local'; S.ai = null; startDraft(); } }),
       Net.room ? h('.card', h('h3', { text: 'Two phones' }),
         h('p.note', { text: Net.fb ? 'Both coaches open this link on their own phone. One hosts, the other joins with the code.' : 'Both coaches open this page signed in. One hosts, the other joins with the code.' }),
