@@ -91,28 +91,55 @@
     var pp = {}; if (p.pp) [0, 1, 2, 3, 4].forEach(function (k) { if (p.pp[k] === 'sag' || p.pp[k] === 'tight' || p.pp[k] === 'deny') pp[k] = p.pp[k]; });
     var roles = {}; if (p.roles) [0, 1, 2, 3, 4].forEach(function (k) { if (p.roles[k] === 'home' || p.roles[k] === 'help') roles[k] = p.roles[k]; });
     return { style: oneOf(p.style, ['man', 'switch', 'zone', 'mix'], 'man'), match: m, cover: oneOf(p.cover, ['drop', 'switch', 'hedge', 'trap'], 'drop'),
-      press: oneOf(p.press, ['sag', 'normal', 'tight'], 'normal'), pp: pp, help: oneOf(p.help, ['help', 'home'], 'help'), after: 'box', leak: Array.isArray(p.leak) ? p.leak.map(slot).filter(function (v, i, a) { return a.indexOf(v) === i; }).slice(0, 2) : [], roles: roles, dbl: p.dbl == null ? null : slot(p.dbl), rules: (Array.isArray(p.rules) ? p.rules : p.rule ? [p.rule] : []).map(cleanRule).filter(Boolean).slice(0, 4) };
+      press: oneOf(p.press, ['sag', 'normal', 'tight'], 'normal'), pp: pp, help: oneOf(p.help, ['help', 'home'], 'help'), after: 'box', leak: Array.isArray(p.leak) ? p.leak.map(slot).filter(function (v, i, a) { return a.indexOf(v) === i; }).slice(0, 2) : [], roles: roles, dbl: p.dbl == null ? null : slot(p.dbl), rules: (Array.isArray(p.rules) ? p.rules : p.rule ? [p.rule] : []).map(cleanRule).filter(Boolean).slice(0, 4),
+      sit: p.sit && typeof p.sit.sig === 'string' && p.sit.sig.length < 600 ? { sig: p.sit.sig, take: oneOf(p.sit.take, ['pass', 'screen', 'shooter'], 'pass') } : null };
   }
 
   // ---------- game flow (runs on the one phone, or on the host) ----------
   function changed() { if (S.mode === 'host') pubState(); render(); }
   function taken(id) { return S.picks[0].indexOf(id) >= 0 || S.picks[1].indexOf(id) >= 0; }
-  function startDraft() { clearGame(); var keep = { mode: S.mode, code: S.code, guest: S.guest }; S = fresh(); S.mode = keep.mode; S.code = keep.code; S.guest = keep.guest; S.phase = 'draft'; sim = null; saved = { off: [null, null], def: [null, null] }; changed(); }
+  function startDraft() { clearGame(); var keep = { mode: S.mode, code: S.code, guest: S.guest, ai: S.ai }; S = fresh(); S.mode = keep.mode; S.code = keep.code; S.guest = keep.guest; S.ai = keep.mode === 'local' && keep.ai != null ? keep.ai : null; S.phase = 'draft'; sim = null; saved = { off: [null, null], def: [null, null] }; changed(); }
+  // ---------- the computer coach ----------
+  function rnd(a) { return a[Math.floor(Math.random() * a.length)]; }
+  function aiDraft() {
+    if (S.ai == null || S.phase !== 'draft' || S.turn !== S.ai) return;
+    setTimeout(function () {
+      if (S.ai == null || S.phase !== 'draft' || S.turn !== S.ai) return;
+      var have = S.picks[S.ai].map(function (id) { return P(id).pos; }), bigs = have.filter(function (x) { return x === 'C' || x === 'PF'; }).length, guards = have.filter(function (x) { return x === 'PG' || x === 'SG'; }).length;
+      var pool = BB.players.filter(function (p) { return !taken(p.id); }).map(function (p) { var big = p.pos === 'C' || p.pos === 'PF', gd = p.pos === 'PG' || p.pos === 'SG'; return [p.r.ovr + (big && bigs === 0 ? 4 : big && bigs >= 2 ? -5 : 0) + (gd && guards === 0 ? 3 : gd && guards >= 3 ? -6 : 0) + Math.random() * 2.5, p.id]; }).sort(function (a, b) { return b[0] - a[0]; });
+      if (pool.length) { doPick(S.ai, pool[0][1]); changed(); }
+    }, 650);
+  }
+  function aiPlan(t) {
+    if (t === S.off) { // offense: mostly set plays, never the same call three times, shot diet to suit the roster
+      var pl = names(t), last = S.calls && S.calls[t] ? S.calls[t].k : '', seenMe = (S.seenP && S.seenP[t]) || {}, opts = BB.PLAYS.filter(function (p) { return p.name !== last; });
+      var freshP = opts.filter(function (p) { return !seenMe[playSig(p)]; }), play = Math.random() < 0.72 ? cleanPlay(rnd(freshP.length && Math.random() < 0.7 ? freshP : opts)) : null;
+      var three = pl.reduce(function (a, p) { return a + p.r.three; }, 0) / 5, star = 0; pl.forEach(function (p, i) { if (p.r.ovr > pl[star].r.ovr) star = i; });
+      var styles = ['motion', 'pnr', 'iso', 'post', 'dnk'].filter(function (x) { return 'style:' + x !== last; }), opp = names(1 - t), weak = 0; opp.forEach(function (p, i) { if (p.r.pd < opp[weak].r.pd) weak = i; });
+      return { style: rnd(styles), plays: [play, null], focus: !play && Math.random() < 0.5 ? star : null, hunt: !play && Math.random() < 0.25 ? weak : null, sel: three >= 82 && Math.random() < 0.5 ? 'three' : Math.random() < 0.25 ? 'paint' : 'bal', pace: rnd(['normal', 'normal', 'quick', 'patient']), crash: null };
+    }
+    var them = names(1 - t), bk = (S.book && S.book[1 - t]) || [], sit = null, pp = {}, best = 0;
+    if (bk.length && Math.random() < 0.42) { var tot = bk.reduce(function (a, q) { return a + q.n; }, 0), roll = Math.random() * tot, pick = bk[0]; bk.some(function (q) { roll -= q.n; if (roll <= 0) { pick = q; return true; } return false; }); sit = { sig: pick.sig, take: rnd(['pass', 'screen', 'shooter']) }; }
+    them.forEach(function (p, i) { if (p.r.three >= 90) pp[i] = 'tight'; else if (p.r.three < 66) pp[i] = 'sag'; if (p.r.ovr > them[best].r.ovr) best = i; });
+    var st = rnd(['man', 'man', 'man', 'man', 'switch', 'zone', 'zone', 'mix']);
+    return { style: st, match: [0, 1, 2, 3, 4], cover: rnd(['drop', 'drop', 'hedge', 'switch', 'trap']), press: rnd(['normal', 'normal', 'tight', 'sag']), pp: pp, help: rnd(['help', 'help', 'home']), dbl: Math.random() < 0.15 ? best : null, roles: {}, leak: Math.random() < 0.15 ? [0] : [], rules: [], sit: sit };
+  }
+  function aiCoach() { if (S.ai == null || S.phase !== 'coach' || S.done[S.ai]) return; var at = S.rd; setTimeout(function () { if (S.ai != null && S.phase === 'coach' && S.rd === at && !S.done[S.ai]) submitPlan(S.ai, aiPlan(S.ai)); }, 50); }
   function doPick(coach, id) {
     if (S.phase !== 'draft' || S.turn !== coach || !P(id) || taken(id) || S.picks[coach].length >= 5) return;
     S.picks[coach].push(id);
     if (S.picks[0].length === 5 && S.picks[1].length === 5) {
       [0, 1].forEach(function (t) { S.lineup[t] = S.picks[t].slice().sort(function (a, b) { return P(a).r.size - P(b).r.size || P(b).r.ply - P(a).r.ply; }); });
       startMatch();
-    } else S.turn = 1 - S.turn;
+    } else { S.turn = 1 - S.turn; aiDraft(); }
     changed();
   }
   function startMatch() {
-    S.score = [0, 0]; S.pos = 0; S.total = 14; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.seenP = [{}, {}]; S.ptr = [null, null]; S.tend = null; S.tos = [2, 2]; S.afterTO = 0; S.calls = [null, null]; S.clutch = false; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
+    S.score = [0, 0]; S.pos = 0; S.total = 14; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.seenP = [{}, {}]; S.book = [[], []]; S.sitRes = null; S.ptr = [null, null]; S.tend = null; S.tos = [2, 2]; S.afterTO = 0; S.calls = [null, null]; S.clutch = false; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
-  function toCoach() { S.phase = 'coach'; S.rd = (S.rd || 0) + 1; S.done = [false, false]; pend = [null, null]; ui.localStep = 0; ui.fo = null; ui.fd = null; ui.call = null; ui.swap = null; ui.quick = null; saveGame(); }
+  function toCoach() { S.phase = 'coach'; S.rd = (S.rd || 0) + 1; S.done = [false, false]; pend = [null, null]; ui.localStep = 0; ui.fo = null; ui.fd = null; ui.call = null; ui.swap = null; ui.quick = null; saveGame(); aiCoach(); }
   // The game is saved on this phone at the start of every possession, so a refresh or a crash loses at most the possession in progress.
   function saveGame() { if (!auth) return; try { localStorage.setItem('sideline.game', JSON.stringify({ t: Date.now(), S: S, saved: saved })); } catch (e) { /* best effort */ } }
   function clearGame() { try { localStorage.removeItem('sideline.game'); } catch (e) { /* fine */ } }
@@ -148,13 +175,16 @@
       var po = pend[S.off], ck = (po.plays.filter(Boolean)[0] || {}).name || 'style:' + po.style; S.calls = S.calls || [null, null];
       var lc = S.calls[S.off]; S.calls[S.off] = lc && lc.k === ck ? { k: ck, n: lc.n + 1 } : { k: ck, n: 1 }; po.read = Math.min(2, S.calls[S.off].n - 1);
       var fp = po.plays.filter(Boolean)[0]; S.seenP = S.seenP || [{}, {}]; if (fp) { var sg = playSig(fp); po.fresh = !S.seenP[S.off][sg]; S.seenP[S.off][sg] = 1; }
+      var dq = pend[1 - S.off], fsig = fp ? playSig(fp) : '';
+      if (dq.sit) { if (fp && dq.sit.sig === fsig) { po.jumped = dq.sit.take; po.read = 2; po.fresh = false; S.sitRes = { ok: 1, team: 1 - S.off, name: fp.name }; } else { po.fooled = true; S.sitRes = { ok: 0, team: 1 - S.off }; } } else S.sitRes = null;
       S.clutch = S.total - S.pos <= 4 && Math.abs(S.score[0] - S.score[1]) <= 4; sim.clutch = S.clutch;
       sim.startPossession(S.off, pend[S.off], pend[1 - S.off]);
       if (S.afterTO) { sim.sc = S.afterTO; S.afterTO = 0; }
       S.now = { off: descOff(pend[S.off]), def: descDef(pend[1 - S.off]), n: pend[S.off].plays.filter(Boolean).map(function (q) { return q.beats.length; }), nm: pend[S.off].plays.filter(Boolean).map(function (q) { return q.name; }), st: styleName(BB.OFF_STYLES, pend[S.off].style) };
       var look = { man: 'man to man', 'switch': 'man to man, switching everything', zone: 'a 2-3 zone' }[sim.d.style];
       sim.ev(TEAM[1 - S.off] + ' is in ' + look + '.', 'i');
-      S.slow = null; slowUntil = 0; slowCool = [0, 0]; S.phase = 'live'; S.flash = { txt: S.clutch ? 'Clutch time' : TEAM[S.off] + ' ball', team: S.off, start: 1 }; startHold = 1.1; liveFor = 0; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null; frameT = sim.frame();
+      S.slow = null; slowUntil = 0; slowCool = [0, 0]; S.phase = 'live'; S.flash = { txt: S.clutch ? 'Clutch time' : TEAM[S.off] + ' ball', team: S.off, start: 1 };
+      if (S.sitRes) sim.ev(S.sitRes.ok ? TEAM[S.sitRes.team] + ' guessed it: they were sitting on ' + S.sitRes.name + '.' : TEAM[S.sitRes.team] + ' sat on the wrong play and get caught leaning.', 'play'); startHold = 1.1; liveFor = 0; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null; frameT = sim.frame();
     }
     changed();
   }
@@ -169,6 +199,8 @@
     S.score = sim.score.slice(); S.pos++; S.box = sim.box.map(function (r) { return r.slice(); });
     if (!Array.isArray(S.ptr) || S.ptr.length !== 2 || (S.ptr[0] && !Array.isArray(S.ptr[0]) && S.ptr[0].name)) S.ptr = [null, null];
     S.ptr[S.off] = (sim.trace || []).map(function (x) { return { name: x.name, n: x.n, ran: x.ran, why: x.why, at: x.at, shot: x.shot, done: x.done }; });
+    var shown = pend[S.off] && pend[S.off].plays.filter(Boolean)[0];
+    if (shown) { S.book = S.book || [[], []]; var bk = S.book[S.off], sg2 = playSig(shown), ex = bk.filter(function (q) { return q.sig === sg2; })[0]; if (ex) ex.n++; else { bk.push({ sig: sg2, n: 1, p: { name: shown.name, setup: shown.setup, ball: shown.ball, beats: shown.beats } }); if (bk.length > 5) bk.shift(); } }
     S.plog = sim.events.slice(evStart).filter(function (x) { return x.kind !== 'i' || /breaks down/.test(x.txt); }).map(function (x) { return x.txt; }).slice(-7);
     var ls = sim.lastShot; S.look = null; S.hist = S.hist || [];
     if (ls) { var kind = { three: 'three', rim: 'shot at the rim', 'short': 'short shot', mid: 'mid-range jumper' }[ls.type], open = ls.d1 >= 6 ? 'Wide open' : ls.d1 >= 4 ? 'Open' : ls.d1 >= 2.5 ? 'Contested' : 'Heavily contested';
@@ -418,7 +450,8 @@
         return h('.card', h('h3', { text: 'You were in a game' }), h('.row', h('button.btn.primary.grow', { text: 'Rejoin game ' + j.code, onclick: function () { joinGame(j.code); } }), h('button.btn', { text: 'Forget', onclick: function () { try { localStorage.removeItem('sideline.join'); } catch (e) { /* fine */ } render(); } })));
       })(),
       h('button.btn.small', { style: 'align-self:flex-start', text: 'Sound: ' + (soundOn() ? 'on' : 'off'), onclick: function () { try { localStorage.setItem('sideline.sound', soundOn() ? 'off' : 'on'); } catch (e) { /* fine */ } render(); } }),
-      h('button.btn.primary', { text: 'Play on one phone', onclick: function () { auth = true; me = 0; S.mode = 'local'; startDraft(); } }),
+      h('button.btn.primary', { text: 'Play against the computer', onclick: function () { auth = true; me = 0; S.mode = 'local'; S.ai = 1; startDraft(); } }),
+      h('button.btn', { text: 'Two coaches, one phone', onclick: function () { auth = true; me = 0; S.mode = 'local'; S.ai = null; startDraft(); } }),
       Net.room ? h('.card', h('h3', { text: 'Two phones' }),
         h('p.note', { text: Net.fb ? 'Both coaches open this link on their own phone. One hosts, the other joins with the code.' : 'Both coaches open this page signed in. One hosts, the other joins with the code.' }),
         h('button.btn', { text: 'Host a game', onclick: hostGame }),
@@ -455,14 +488,14 @@
     }));
   }
   function viewDraft() {
-    var myTurn = S.mode === 'local' ? true : S.turn === me, who = S.turn;
+    var myTurn = S.mode === 'local' ? (S.ai == null || S.turn !== S.ai) : S.turn === me, who = S.turn;
     var list = BB.players.filter(function (p) { return !taken(p.id) && (!ui.posf || ui.posf.indexOf(p.pos) >= 0); }).sort(function (a, b) { return b.r[ui.sort] - a.r[ui.sort] || b.r.ovr - a.r.ovr; });
     function roster(t) {
       return h('.roster' + (t ? '.t1' : '') + (S.turn === t ? '.turn' : ''), h('span.tag.t' + t, { text: TEAM[t] + (S.mode !== 'local' && t === me ? ' (you)' : '') }),
         h('ol', S.picks[t].map(function (id) { return h('li', { text: P(id).tag + ' \u00b7 ' + P(id).pos + ' \u00b7 ' + P(id).r.ovr }); })));
     }
     return h('.pad',
-      h('.banner', { text: S.mode === 'local' ? TEAM[who] + ' coach picks. Tap a name to see every rating.' : (myTurn ? 'Your pick. Tap a name to see every rating.' : 'Waiting for ' + TEAM[who] + ' to pick.') }),
+      h('.banner', { text: S.mode === 'local' ? (S.ai != null ? (who === S.ai ? 'The computer is picking...' : 'Your pick. Tap a name to see every rating.') : TEAM[who] + ' coach picks. Tap a name to see every rating.') : (myTurn ? 'Your pick. Tap a name to see every rating.' : 'Waiting for ' + TEAM[who] + ' to pick.') }),
       h('.rosters', roster(0), roster(1)),
       h('.chips', [['', 'All'], ['PG,SG', 'Guards'], ['SF,PF', 'Forwards'], ['C', 'Centers']].map(function (o) { return h('button.chip' + ((ui.posf || '') === o[0] ? '.on' : ''), { text: o[1], onclick: function () { ui.posf = o[0]; render(); } }); })),
       h('div', h('h3', { text: 'Sort by' }), h('.chips.scrollx', { style: 'margin-top:6px' }, SORTS.map(function (s) { return h('button.chip' + (ui.sort === s[0] ? '.on' : ''), { text: s[1], onclick: function () { ui.sort = s[0]; render(); } }); }))),
@@ -616,6 +649,7 @@
 
   function viewCoach() {
     var offC = S.off, defC = 1 - S.off;
+    if (S.mode === 'local' && S.ai != null) { var hm = 1 - S.ai; return S.done[hm] ? h('.center', h('h2', { text: 'Locked in' })) : hm === offC ? formOffense(hm) : formDefense(hm); }
     if (S.mode === 'local') {
       if (ui.localStep === 0 || ui.localStep === 2) {
         var c = ui.localStep === 0 ? offC : defC;
@@ -646,6 +680,21 @@
           h('button.btn.small', { text: p ? 'Edit' : 'Draw', onclick: function () { openEditor(p, t, function (np) { f.plays[i] = np; render(); }); } }),
           p ? h('button.btn.small', { text: 'Clear', onclick: function () { f.plays[i] = null; render(); } }) : null)));
     }
+    function playBoard() {
+      var p = f.plays[0], cvb = h('canvas.big', { width: 340, height: 320 }), seen = p && S.seenP && S.seenP[t] && S.seenP[t][playSig(p)], bkMe = S.book && S.book[t] ? S.book[t] : [];
+      if (p) drawDiagram(cvb, p, { beat: -1 }); else drawDiagram(cvb, { setup: BB.FORM['5 out'], ball: 0, beats: [] }, { beat: -1, empty: true });
+      function use(np) { f.plays[0] = np; render(); }
+      return h('.card.board', h('h3', { text: p ? 'Your play: ' + p.name : 'Draw up a play' }), cvb,
+        p ? h('p.note' + (seen ? '.warn' : '.fresh'), { text: seen ? 'They have seen this one. They may be sitting on it: change who cuts, screens or gets the ball to make it a new look.' : 'A new look. The first time you run it the defense is a step behind.' }) : h('p.note', { text: 'No play: the team freelances. A drawn play gets better shots, and a new one catches the defense off guard.' }),
+        h('.row', h('button.btn.primary.grow', { text: p ? 'Edit play' : 'Draw a play', onclick: function () { openEditor(p, t, use); } }),
+          h('button.btn', { text: 'Playbook', onclick: function () { openPlaybook(use); } }),
+          p ? h('button.btn', { text: 'Clear', onclick: function () { f.plays[0] = null; render(); } }) : null),
+        custom.length ? h('div', h('h4', { text: 'Your drawn plays' }), h('.strip', custom.slice().reverse().slice(0, 8).map(function (q) {
+          var c2 = h('canvas', { width: 104, height: 98 }); drawDiagram(c2, q, { beat: -1 }); var sn = S.seenP && S.seenP[t] && S.seenP[t][playSig(q)];
+          return h('button.thumb' + (p && p.name === q.name ? '.on' : ''), { onclick: function () { use(cleanPlay(q)); } }, c2, h('span', { text: q.name + (sn ? ' \u00b7 seen' : '') }));
+        }))) : null,
+        playSlot(1));
+    }
     var prev = saved.off[t];
     return h('div', h('.pad',
       h('.row', h('span.tag.t' + t, { text: TEAM[t] + ' offense' }), h('span.note.grow', { text: 'You have the ball.' })),
@@ -653,11 +702,11 @@
       sitLine(),
       scoutCard(t, true),
       playReport(t),
+      playBoard(),
       sayCard(f, 'say', 'e.g. run horns, get Curry threes, be patient, Jokic and Tatum crash', function (txt) { return sayOffense(txt, f, pl, names(1 - t)); }),
       quickOff(f, t),
       tendCard(t, true),
       lineupStrip(t),
-      h('.card', h('h3', { text: 'Plays' }), playSlot(0), playSlot(1)),
       h('.card', h('h3', { text: 'Freelance style' }), chipRow(BB.OFF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note + ' Used whenever no play is running.' })),
       h('.card',
         field('Shot selection', chipRow([['bal', 'Best look'], ['three', 'Hunt threes'], ['paint', 'Attack the paint']], f.sel || 'bal', function (v) { f.sel = v; }), { bal: 'Take whatever the defense gives.', three: 'Players pass up twos to find a three. Higher ceiling, more variance.', paint: 'Drives and finishes first. More fouls drawn, fewer threes.' }[f.sel || 'bal']),
@@ -708,7 +757,7 @@
   }
 
   function formDefense(t) {
-    if (!ui.fd) { ui.fd = saved.def[t] ? clone(saved.def[t]) : { style: 'man', match: [0, 1, 2, 3, 4], cover: 'drop', press: 'normal', pp: {}, help: 'help', after: 'box' }; ui.fd.rules = (ui.fd.rules || []).slice(); ui.fd.said = null; ui.fd.sayText = ''; }
+    if (!ui.fd) { ui.fd = saved.def[t] ? clone(saved.def[t]) : { style: 'man', match: [0, 1, 2, 3, 4], cover: 'drop', press: 'normal', pp: {}, help: 'help', after: 'box' }; ui.fd.rules = (ui.fd.rules || []).slice(); ui.fd.sit = null; ui.fd.said = null; ui.fd.sayText = ''; }
     var f = ui.fd, st = BB.DEF_STYLES.filter(function (s) { return s.id === f.style; })[0], mine = names(t), opp = names(1 - t);
     var manOn = f.style === 'man' || f.style === 'switch' || f.style === 'mix';
     function edge(d, o) { // what a coach would notice about this pairing
@@ -733,7 +782,7 @@
     }
     var cov = f.style === 'switch' ? 'switch' : f.cover, prevD = saved.def[t];
     function done(src) {
-      var plan = { style: src.style, match: src.match.slice(), cover: src.cover, press: src.press, pp: clone(src.pp || {}), help: src.help, after: src.after, roles: clone(src.roles || {}), leak: (src.leak || []).slice(), dbl: src.dbl == null ? null : src.dbl, rules: clone(src.rules || []) };
+      var plan = { style: src.style, match: src.match.slice(), cover: src.cover, press: src.press, pp: clone(src.pp || {}), help: src.help, after: src.after, roles: clone(src.roles || {}), leak: (src.leak || []).slice(), dbl: src.dbl == null ? null : src.dbl, rules: clone(src.rules || []), sit: src === f && f.sit ? { sig: f.sit.sig, take: f.sit.take } : null };
       ui.fd = null; if (S.mode === 'local') ui.localStep = 0; sendPlan(t, plan);
     }
     return h('div', h('.pad',
@@ -743,6 +792,19 @@
       scoutCard(t, false),
       sayCard(f, 'rule', 'e.g. zone. or: put ' + mine[0].tag + ' on ' + opp[1].tag + ', deny ' + opp[0].tag + ', double ' + opp[4].tag + ' when he posts up', function (txt) { return sayDefense(txt, f, mine, opp); }),
       f.rules && f.rules.length ? h('.card', h('h3', { text: 'Standing rules' }), f.rules.map(function (r, n) { return h('.row', h('span.grow', { text: ruleText(r, opp) }), h('button.btn.small', { text: 'Remove', onclick: function () { f.rules.splice(n, 1); render(); } })); })) : null,
+      (function () {
+        var bk = S.book && S.book[1 - t] ? S.book[1 - t] : [];
+        if (f.sit && !bk.some(function (q) { return q.sig === f.sit.sig; })) f.sit = null;
+        return h('.card.guard', h('h3', { text: 'Guard their plays' }),
+          !bk.length ? h('p.note', { text: 'Every play they run lands here. Then you can sit on one: guess right and you blow it up, guess wrong and you are caught leaning.' }) : null,
+          bk.map(function (q) {
+            var cvq = h('canvas', { width: 150, height: 141 }); drawDiagram(cvq, q.p, { beat: -1 }); var on = f.sit && f.sit.sig === q.sig;
+            return h('.grow2' + (on ? '.on' : ''), cvq, h('div', h('.nm', { text: q.p.name + ' \u00b7 seen ' + q.n + (q.n > 1 ? ' times' : ' time') }),
+              h('button.btn.small' + (on ? '.primary' : ''), { text: on ? 'Sitting on it' : 'Sit on this play', onclick: function () { f.sit = on ? null : { sig: q.sig, take: 'pass' }; render(); } }),
+              on ? h('.chips', [['pass', 'Jump the passes'], ['screen', 'Beat the screens'], ['shooter', 'Lock the shooter']].map(function (o2) { return h('button.chip' + (f.sit.take === o2[0] ? '.on' : ''), { text: o2[1], onclick: function () { f.sit.take = o2[0]; render(); } }); })) : null,
+              on ? h('p.note', { text: { pass: 'Defenders play the passing lanes of this play. The drawn passes get covered.', screen: 'Defenders are already moving before the screen arrives. Cutters get no head start.', shooter: 'Whoever the play is built to free gets no clean look.' }[f.sit.take] + ' If they run anything else, your defense is a step behind all possession.' }) : null));
+          }));
+      })(),
       quickDef(f),
       tendCard(t, false),
       h('.card', h('h3', { text: 'Scheme' }), chipRow(BB.DEF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note })),
@@ -1225,7 +1287,7 @@
         } });
       }));
     }
-    var rows = S.mode === 'local' ? [row(1 - S.off), row(S.off)] : [row(me)];
+    var rows = S.mode === 'local' ? (S.ai != null ? [row(1 - S.ai)] : [row(1 - S.off), row(S.off)]) : [row(me)];
     var cv = h('canvas#court');
     cv.addEventListener('pointerdown', courtTap);
     add(sc, h('.live', h('#toast', h('.feed', h('span#toastprev'), h('span#toasttxt')), h('span.sc#shotclock')), h('#planbar'), h('#livehint'), h('#courtwrap', cv, h('#feedlist'), h('#flash')), rows));
@@ -1267,12 +1329,13 @@
 
   var TAGS = { 1: 'Screened', 2: 'Switch', 3: 'Beat his man', 4: 'Cut off', 5: 'Double', 6: 'Open', 7: 'Denied', 8: 'Trap', 9: 'Cutting', 10: 'Crowding', 11: 'Shading', 12: 'Gambling', 13: 'Screen', 14: 'Heating up' };
   function livePlays() { // the plays this phone is allowed to see drawn on the court
+    if (auth && S.ai != null && S.off === S.ai) return null; // the computer's play stays hidden, like a real opponent's
     if (auth) return pend[S.off] ? pend[S.off].plays.filter(Boolean) : [];
     if (me === S.off && saved.off[me]) return cleanOff(saved.off[me]).plays.filter(Boolean);
     return null;
   }
   function planText(v) {
-    var n = S.now, ph = v[43], pi = v[41], seeOff = S.mode === 'local' || me === S.off, seeDef = S.mode === 'local' || me !== S.off, a = '', b = '';
+    var n = S.now, ph = v[43], pi = v[41], seeOff = S.mode === 'local' ? (S.ai == null || S.off !== S.ai) : me === S.off, seeDef = S.mode === 'local' ? (S.ai == null || S.off === S.ai) : me !== S.off, a = '', b = '';
     if (!n) return ['', ''];
     if (ph === 0) a = 'Inbounding'; else if (ph === 1) a = seeOff && n.nm[pi] ? 'Setting up ' + n.nm[pi] : 'Setting up a play';
     else if (ph === 2) a = seeOff && n.nm[pi] ? n.nm[pi] + ': step ' + (v[42] + 1) + ' of ' + n.n[pi] : 'Running a set play';

@@ -185,6 +185,12 @@ p.note.warn { color: var(--red); font-weight: 600; }
 .tend .trow { display: flex; gap: 10px; align-items: baseline; font-size: 13.5px; } .tend .pp { color: var(--muted); min-width: 52px; text-align: right; } .tend .pp.good { color: #1f7a45; font-weight: 700; }
 .prep p { margin: 0; font-size: 14px; } .prep b.good { color: #1f7a45; } .prep b.bad { color: var(--red); }
 .testres .trow { display: flex; gap: 10px; align-items: baseline; font-size: 13.5px; } .testres .pp { color: var(--muted); min-width: 60px; text-align: right; } .testres .pp.good { color: #1f7a45; font-weight: 700; }
+.board canvas.big { width: 100%; height: auto; border-radius: 10px; display: block; } .board h4 { margin: 4px 0 6px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; } .thumb { flex: 0 0 auto; width: 108px; padding: 2px; border: 2px solid var(--line); border-radius: 10px; background: var(--panel); display: flex; flex-direction: column; gap: 2px; font: 600 11.5px/1.2 inherit; color: var(--ink); cursor: pointer; }
+.thumb canvas { width: 100%; height: auto; border-radius: 7px; } .thumb.on { border-color: var(--ink); } .thumb span { padding: 0 3px 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+p.note.fresh { color: #1f7a45; font-weight: 600; }
+.guard .grow2 { display: grid; grid-template-columns: 112px 1fr; gap: 10px; align-items: start; padding: 8px; border: 1px solid var(--line); border-radius: 10px; } .guard .grow2.on { border-color: var(--ink); box-shadow: 0 0 0 2px var(--hi); }
+.guard canvas { width: 112px; height: auto; border-radius: 8px; } .guard .nm { font-weight: 600; margin-bottom: 6px; } .guard .grow2 > div { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 #planbar { display: flex; gap: 6px; padding: 4px 10px; font-size: 12.5px; font-weight: 600; background: var(--panel); border-bottom: 1px solid var(--line); min-height: 26px; overflow: hidden; }
 #planbar span { padding: 2px 8px; border-radius: 999px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 #planbar span:first-child { flex: 0 0 auto; max-width: 70%; }
@@ -212,7 +218,7 @@ p.note.warn { color: var(--red); font-weight: 600; }
    (bypassing the cache) which build is current, reloads if this page is older, and loads the game files
    under that build's name so a stale copy can never be used. */
 (function () {
-  var BUILD = 'Nov 26 21:02'; window.SIDELINE_BUILD = BUILD;
+  var BUILD = 'Nov 26 22:00'; window.SIDELINE_BUILD = BUILD;
   function load(v) {
     var files = ['data.js', 'engine.js', 'app.js'], i = 0;
     (function next() { if (i >= files.length) return; var s = document.createElement('script'); s.src = files[i++] + '?v=' + encodeURIComponent(v); s.onload = next; s.onerror = next; document.body.appendChild(s); })();

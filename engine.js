@@ -91,7 +91,7 @@
     if (cl) cl.forEach(function (sl) { if (sl >= 0 && sl < 5 && !crash[sl]) { crash[sl] = true; nCrash++; } });
     else { offs.slice().sort(function (a, b) { return b.r.size - a.r.size || b.r.reb - a.r.reb; }).slice(0, 3).forEach(function (q) { crash[q.slot] = true; nCrash++; }); }
     this.trace = [];
-    this.o = { tr: null, fresh: !!po.fresh, sel: po.sel || 'bal', pace: po.pace || 'normal', read: Math.max(0, Math.min(2, po.read | 0)), crash: crash, nCrash: nCrash, inb: inb, inbPassed: false, safe: false, style: po.style || 'motion', tempo: 'set', focus: po.focus == null ? null : po.focus, after: po.after || 'crash',
+    this.o = { jumped: po.jumped || '', fooled: !!po.fooled, tr: null, fresh: !!po.fresh && !po.jumped, sel: po.sel || 'bal', pace: po.pace || 'normal', read: Math.max(0, Math.min(2, po.read | 0)), crash: crash, nCrash: nCrash, inb: inb, inbPassed: false, safe: false, style: po.style || 'motion', tempo: 'set', focus: po.focus == null ? null : po.focus, after: po.after || 'crash',
       plays: plays, pi: -1, beats: null, bi: 0, bt: 0, minT: 0.3, phase: 'adv', think: 0, handler: hd, setup: setup, t0: this.t, arrT: null,
       free: false, gen: false, forced: false, crossed: true, nextTC: this.t + 0.15, fb: -1, drives: 0, passes: 0, lastBallScreen: -9,
       pendingRead: false, liveQ: null, reset: null, lastStyle: -1, fails: 0, ho: null, opt: null, soc: -1, defer: null, endSh: -1, movers: [] };
@@ -151,7 +151,8 @@
     }
     if (this.sc < 5) pm -= (99 - r.cmp) / 99 * 0.06; // rushed shots punish shaky players
     pm += 0.025 * Math.min(2, Math.max(0, ((this.hot || {})[p.i] || 0) - 1)); // a shooter who has made two straight is feeling it
-    if (this.o && this.o.read) pm -= 0.03 * this.o.read; // a call the defense has seen coming: every look is a little tougher
+    if (this.o && this.o.read) pm -= 0.03 * this.o.read;
+    if (this.o && this.o.fooled) pm += 0.075; // the defense guessed the wrong play and is leaning the wrong way // a call the defense has seen coming: every look is a little tougher
     if (this.clutch) pm += (r.cmp - 75) * 0.003; // late and close: composure shows
     pm = clamp(pm, 0.08, 0.92);
     var ev = (1 - pf) * pm * pts + pf * 2 * r.ft;
@@ -160,7 +161,7 @@
 
   Sim.prototype.shoot = function (p) {
     var s = this.shotInfo(p), o = this.o, hp = hoop(this.offTeam), self = this;
-    if (o.tr && !o.tr.why && ((o.beats && !o.gen) || this.t - (o.trT || -9) < 2.6)) { o.tr.shot = true; o.tr.done = true; s.pm = Math.min(0.92, s.pm + 0.07 + (o.fresh ? 0.03 : 0)); } // the shot the play was drawn to get: taken in rhythm
+    if (o.tr && !o.tr.why && ((o.beats && !o.gen) || this.t - (o.trT || -9) < 2.6)) { o.tr.shot = true; o.tr.done = true; s.pm = Math.min(0.92, s.pm + (o.jumped === 'shooter' ? -0.06 : o.jumped ? 0 : 0.07) + (o.fresh ? 0.03 : 0)); } // the shot the play was drawn to get: taken in rhythm
     o.beats = null; p.driving = false;
     var label = s.type === 'three' ? 'three' : s.type === 'rim' ? 'at the rim' : s.type === 'short' ? 'in the paint' : 'jumper';
     if (this.rand() < s.pf) {
@@ -500,7 +501,7 @@
         if (!expl[a.to] && !o.gen) o.caught = a.to; // nothing drawn for him after the catch: he reads it himself
         // a pass to a cutter is led to his spot, and a driver passes at the end of his drive
         if (mvK[a.to] === 'mv' || mvK[a.to] === 'scr' || mvK[a.s] === 'drv' || mvK[a.s] === 'lay') { o.late = { s: a.s, to: a.to, t: 0, then: [] }; continue; }
-        if (this.passRisk(H, T) > (o.gen ? 0.22 : 0.3 - 0.035 * o.read + (o.fresh ? 0.05 : 0))) { o.why = 'the pass to ' + T.name + ' is covered'; this.tag(7, this.guardOf(T)); return false; }
+        if (this.passRisk(H, T) > (o.gen ? 0.22 : 0.3 - 0.035 * o.read + (o.fresh ? 0.05 : 0) - (o.jumped === 'pass' ? 0.1 : 0) + (o.fooled ? 0.04 : 0))) { o.why = 'the pass to ' + T.name + ' is covered'; this.tag(7, this.guardOf(T)); return false; }
         if (!this.pass(H, T)) return true; // turnover ends it
       } else if (a.k === 'ho') {
         if (H !== p) { o.why = p.name + ' does not have the ball'; return false; }
@@ -521,7 +522,7 @@
         w = h2w(off, a.x, a.y); p.tx = clamp(w.x, 1.5, 48.5); p.ty = clamp(w.y, 1.5, 92.5); p.sp = a.k === 'mv' ? 0.92 : 0.85; p.scrUntil = 0; p.scrPending = a.k === 'scr'; this.setPath(p, a.w || a.c);
         if (a.k === 'mv' && p !== H && dist(p.x, p.y, p.tx, p.ty) > 8) {
           var cg = this.guardOf(p), toRim = pd(p, hoop(off)) - dist(p.tx, p.ty, hoop(off).x, hoop(off).y) > 5;
-          if (cg && pd(cg, p) < 8) { var pr0 = this.d.ppRule[p.slot] || this.d.pp[p.slot] || this.d.press, late = 0.1 + (this.o.fresh && !this.o.gen ? 0.12 : 0) - 0.05 * (this.o.gen ? 0 : this.o.read) + (p.r.oiq - cg.r.diq) / 250 + (toRim && (this.d.deny[p.slot] || pr0 === 'tight') ? 0.22 : 0) - (pr0 === 'sag' && toRim ? 0.1 : 0); cg.reactUntil = this.t + clamp(late, 0.03, 0.5); }
+          if (cg && pd(cg, p) < 8) { var pr0 = this.d.ppRule[p.slot] || this.d.pp[p.slot] || this.d.press, late = 0.1 + (this.o.fooled ? 0.1 : 0) - (this.o.jumped === 'screen' && !this.o.gen ? 0.14 : 0) + (this.o.fresh && !this.o.gen ? 0.12 : 0) - 0.05 * (this.o.gen ? 0 : this.o.read) + (p.r.oiq - cg.r.diq) / 250 + (toRim && (this.d.deny[p.slot] || pr0 === 'tight') ? 0.22 : 0) - (pr0 === 'sag' && toRim ? 0.1 : 0); cg.reactUntil = this.t + clamp(late, 0.03, 0.5); }
         }
         movers.push(p);
       }
@@ -547,7 +548,7 @@
       if (!ready) return;
       if (Pp.lay) { Pp.lay = false; if (Pp === H && pd(Pp, hp) < 6.8 && this.shotInfo(Pp).ev >= 0.78) { o.late = null; o.opt = null; this.shoot(Pp); return; } }
       if (H !== Pp) { o.late = null; o.why = Pp.name + ' does not have the ball'; this.breakPlay(); return; }
-      if (this.passRisk(H, Tt) > 0.3 - 0.035 * o.read + (o.fresh ? 0.05 : 0)) { if (!L.t) L.t = this.t; if (this.t - L.t < 0.7 && this.sc > 3) return; o.late = null; o.why = 'the pass to ' + Tt.name + ' is covered'; this.tag(7, this.guardOf(Tt)); this.breakPlay(); return; }
+      if (this.passRisk(H, Tt) > 0.3 - 0.035 * o.read + (o.fresh ? 0.05 : 0) - (o.jumped === 'pass' ? 0.1 : 0) + (o.fooled ? 0.04 : 0)) { if (!L.t) L.t = this.t; if (this.t - L.t < 0.7 && this.sc > 3) return; o.late = null; o.why = 'the pass to ' + Tt.name + ' is covered'; this.tag(7, this.guardOf(Tt)); this.breakPlay(); return; }
       o.late = null; Pp.driving = false;
       if (!this.pass(H, Tt)) return;
       for (k = 0; k < L.then.length; k++) { var la = L.then[k], lw = h2w(this.offTeam, la.x, la.y); Pp.tx = clamp(lw.x, 1.5, 48.5); Pp.ty = clamp(lw.y, 1.5, 92.5); Pp.sp = 0.92; Pp.scrPending = la.k === 'scr'; this.setPath(Pp, la.w || la.c); if (o.movers.indexOf(Pp) < 0) o.movers.push(Pp); }
@@ -591,7 +592,8 @@
     this.offs().forEach(function (q) { var w = h2w(off, play.setup[q.slot][0], play.setup[q.slot][1]); q.tx = w.x; q.ty = w.y; q.sp = 0.8; q.scrUntil = 0; q.scrPending = false; q.driving = false; });
     o.tr = { name: play.name, n: play.beats.length, ran: 0, why: '', at: 0, shot: false, done: false }; this.trace.push(o.tr);
     this.ev('Running ' + play.name + '.', 'play');
-    if (o.read) this.ev(o.read > 1 ? 'The defense is sitting on it: they have seen this call too often.' : 'The defense has seen this call before.', 'i');
+    if (o.jumped) this.ev('The defense was sitting on this exact play' + (o.jumped === 'pass' ? ' and is in the passing lanes.' : o.jumped === 'screen' ? ' and is already around the screens.' : ' and is glued to the shooter.'), 'i');
+    else if (o.read) this.ev(o.read > 1 ? 'The defense is sitting on it: they have seen this call too often.' : 'The defense has seen this call before.', 'i');
   };
   Sim.prototype.resetStep = function () {
     var o = this.o, play = o.plays[o.pi], H = this.holder(), all = true, self = this;
