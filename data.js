@@ -185,6 +185,13 @@
     'LaMelo Ball': [79, 180, 74], 'Ajay Mitchell': [76, 190, 74], 'Davion Mitchell': [72, 202, 76], 'LeBron James': [81, 250, 86], 'Trae Young': [73, 164, 64], 'Evan Mobley': [83, 215, 84], 'Stephon Castle': [78, 215, 86],
     'AJ Dybantsa': [81, 210, 90], 'Cameron Boozer': [81, 250, 76], 'Amen Thompson': [79, 200, 97], 'OG Anunoby': [79, 232, 82], 'Saddiq Bey': [79, 215, 72], 'Jeremiah Fears': [75, 180, 80], 'Andrew Nembhard': [76, 191, 68], 'Darryn Peterson': [77, 205, 86] };
   var PDEF = { PG: [75, 192, 74], SG: [77, 205, 76], SF: [79, 215, 78], PF: [81, 235, 78], C: [83, 250, 72] };
+  // NBA 2K27 launch overall ratings (Top 100 list published August 2026). Players in this pool who are not on that list have no entry.
+  var K2 = { 'Shai Gilgeous-Alexander': 97, 'Victor Wembanyama': 97, 'Nikola Jokić': 97, 'Luka Dončić': 96, 'Jalen Brunson': 96, 'Giannis Antetokounmpo': 96, 'Cade Cunningham': 94, 'Stephen Curry': 93, 'Kevin Durant': 93, 'Jayson Tatum': 93,
+    'Donovan Mitchell': 93, 'Karl-Anthony Towns': 93, 'Tyrese Maxey': 92, 'LeBron James': 91, 'Jaylen Brown': 91, 'Joel Embiid': 91, 'Devin Booker': 91, 'Anthony Davis': 90, 'Jamal Murray': 89, 'Scottie Barnes': 88, 'OG Anunoby': 88,
+    'Deni Avdija': 88, 'Austin Reaves': 88, 'Jalen Johnson': 87, 'Bam Adebayo': 87, 'Pascal Siakam': 87, 'James Harden': 87, 'Evan Mobley': 87, 'Alperen Şengün': 87, 'Stephon Castle': 87, 'Trae Young': 87, 'Kyrie Irving': 87, 'Cooper Flagg': 87,
+    'Lauri Markkanen': 86, 'LaMelo Ball': 86, 'Amen Thompson': 86, 'Damian Lillard': 86, 'Franz Wagner': 85, 'Michael Porter Jr.': 85, 'Zion Williamson': 85, 'Dylan Harper': 85, 'Jaden McDaniels': 85, 'Tyler Herro': 85, 'Brandon Miller': 85,
+    'Norman Powell': 84, 'Darius Garland': 84, 'Desmond Bane': 84, 'Keyonte George': 84, 'Nickeil Alexander-Walker': 83, 'Julius Randle': 83, 'Paul George': 82, 'Naz Reid': 82, 'Ajay Mitchell': 82, 'Zach LaVine': 82, 'RJ Barrett': 82,
+    'Immanuel Quickley': 82, 'Ayo Dosunmu': 81 };
   function rate(s, name) {
     var ph = PHYS[name] || PDEF[s.pos], size = Math.max(0.5, Math.min(6, 1 + (ph[0] - 74) / 2.6)), adj = ADJ[name] || [0, 0, 0, 0], c = A27[name], p = A26[name], sh = S26[name];
     var wc = c ? c.mp : 1, wp = p ? p.mp * 0.35 : 0;
@@ -227,6 +234,10 @@
     r.ply = Math.round(r.hnd * 0.5 + r.pas * 0.5);
     var raw = r.ins * 0.14 + r.mid * 0.08 + r.three * 0.13 + r.hnd * 0.10 + r.pas * 0.08 + r.oiq * 0.08 + r.pd * 0.09 + r.rim * 0.07 + r.stl * 0.03 + r.blk * 0.03 + r.diq * 0.06 + r.reb * 0.06 + r.spd * 0.03 + r.str * 0.02;
     r.ovr = cl(0.5 * (55 + 1.85 * (raw - 60)) + 0.5 * (77 + bpm * 2.1)); // half skills, half box plus-minus so impact players rate like it
+    // Anchor to NBA 2K27: the overall is mostly 2K's number, nudged by this season's play. Skill ratings move with it so the game matches the number.
+    r.own = r.ovr; var k2 = K2[name], est = { 'AJ Dybantsa': 79, 'Cameron Boozer': 79, 'Darryn Peterson': 78 }[name], tgt = k2 ? Math.round(k2 * 0.7 + r.ovr * 0.3) : Math.max(est || 74, Math.min(r.ovr, 80)), dlt = tgt - r.ovr; // not on 2K's Top 100 means 80 or lower; the three top rookies are my estimate
+    if (dlt) { ['ins', 'mid', 'three', 'hnd', 'pas', 'pd', 'rim', 'oiq', 'diq'].forEach(function (key) { r[key] = cl(r[key] + dlt * 0.6); }); r.ply = Math.round(r.hnd * 0.5 + r.pas * 0.5); }
+    r.ovr = tgt; r.k2 = k2 || 0;
     return r;
   }
 

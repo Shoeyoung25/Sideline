@@ -471,7 +471,7 @@
         : h('p.note', { text: 'Two phone play appears here when this page can open a live room. One phone works everywhere: pass it between coaches.' }),
       ui.err ? h('.banner', { text: ui.err }) : null,
       (function () { var e = null; try { e = JSON.parse(localStorage.getItem('sideline.err') || 'null'); } catch (x) { e = null; } if (!e || Date.now() - e.t > 24 * 3600 * 1000) return null; return h('p.note', { text: 'Last error on this phone (' + new Date(e.t).toLocaleTimeString() + ', version ' + e.b + '): ' + e.m + ' at ' + e.w + '. Send this line to get it fixed.' }); })(),
-      h('p.note', { text: 'Players and ratings come from 2026-27 stats through Nov 26, 2026. ' + BB.players.length + ' players in the pool.' }),
+      h('p.note', { text: 'Overall ratings are anchored to NBA 2K27 and adjusted by 2026-27 stats through Nov 26, 2026. ' + BB.players.length + ' players in the pool.' }),
       window.SIDELINE_BUILD && window.SIDELINE_BUILD.charAt(0) !== '_' ? h('p.note', { text: 'Version ' + window.SIDELINE_BUILD + '. Both phones should show the same one.' }) : null);
   }
   function viewLobby() {
