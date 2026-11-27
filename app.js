@@ -111,7 +111,7 @@
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
-  function toCoach() { S.phase = 'coach'; S.rd = (S.rd || 0) + 1; S.done = [false, false]; pend = [null, null]; ui.localStep = 0; ui.fo = null; ui.fd = null; ui.call = null; ui.swap = null; saveGame(); }
+  function toCoach() { S.phase = 'coach'; S.rd = (S.rd || 0) + 1; S.done = [false, false]; pend = [null, null]; ui.localStep = 0; ui.fo = null; ui.fd = null; ui.call = null; ui.swap = null; ui.quick = null; saveGame(); }
   // The game is saved on this phone at the start of every possession, so a refresh or a crash loses at most the possession in progress.
   function saveGame() { if (!auth) return; try { localStorage.setItem('sideline.game', JSON.stringify({ t: Date.now(), S: S, saved: saved })); } catch (e) { /* best effort */ } }
   function clearGame() { try { localStorage.removeItem('sideline.game'); } catch (e) { /* fine */ } }
@@ -148,7 +148,7 @@
       S.now = { off: descOff(pend[S.off]), def: descDef(pend[1 - S.off]), n: pend[S.off].plays.filter(Boolean).map(function (q) { return q.beats.length; }), nm: pend[S.off].plays.filter(Boolean).map(function (q) { return q.name; }), st: styleName(BB.OFF_STYLES, pend[S.off].style) };
       var look = { man: 'man to man', 'switch': 'man to man, switching everything', zone: 'a 2-3 zone' }[sim.d.style];
       sim.ev(TEAM[1 - S.off] + ' is in ' + look + '.', 'i');
-      S.phase = 'live'; S.flash = { txt: TEAM[S.off] + ' ball', team: S.off, start: 1 }; startHold = 1.1; liveFor = 0; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null; frameT = sim.frame();
+      S.slow = null; slowUntil = 0; slowCool = [0, 0]; S.phase = 'live'; S.flash = { txt: TEAM[S.off] + ' ball', team: S.off, start: 1 }; startHold = 1.1; liveFor = 0; endHold = 0; acc = 0; ui.cool = [0, 0]; ui.call = null; frameT = sim.frame();
     }
     changed();
   }
@@ -169,13 +169,19 @@
     }
     S.off = 1 - S.off; toCoach(); changed();
   }
+  var slowUntil = 0, slowCool = [0, 0];
+  function armSlow(team) { // picking a target for a call slows the game for a moment, for both coaches
+    var now = Date.now(); if (S.phase !== 'live' || !sim || sim.done || now < slowCool[team] || now < ui.cool[team]) return;
+    slowUntil = now + 2600; slowCool[team] = now + 7000; S.slow = { team: team, until: slowUntil }; if (S.mode === 'host') pubState(); updateLive();
+  }
   function liveCall(team, c) {
     if (S.phase !== 'live' || !sim || !c) return;
+    if (c.k === 'arm') { armSlow(team); return; }
     var now = Date.now(); if (now < ui.cool[team]) return;
     var k = c.k, ok = false, s5 = function (v) { return v === 0 || v === 1 || v === 2 || v === 3 || v === 4; };
     if (team === S.off) ok = k === 'off' || (k === 'pnr' && s5(c.a) && s5(c.b)) || (k === 'cut' && s5(c.s));
     else ok = (k === 'double' && s5(c.o)) || (k === 'match' && s5(c.d) && s5(c.o)) || ((k === 'contest' || k === 'steal') && s5(c.d)) || (k === 'move' && s5(c.d) && isFinite(c.x) && isFinite(c.y)) || (k === 'watch' && s5(c.d) && s5(c.o));
-    if (ok && sim.call(team, c)) ui.cool[team] = now + COOLDOWN;
+    if (ok && sim.call(team, c)) { ui.cool[team] = now + COOLDOWN; if (slowUntil > now) slowUntil = now + 250; }
   }
 
   // intents: go straight to the game on this phone, or over the room to the host
@@ -188,7 +194,7 @@
   }
   function sendCall(team, c) {
     if (auth) liveCall(team, c);
-    else if (Net.r) { if (Date.now() < ui.cool[team]) return; ui.cool[team] = Date.now() + COOLDOWN; Net.r.presence({ lc: { u: uid(), c: c } }).catch(noop); }
+    else if (Net.r) { if (Date.now() < ui.cool[team]) return; if (c.k !== 'arm') ui.cool[team] = Date.now() + COOLDOWN; Net.r.presence({ lc: { u: uid(), c: c } }).catch(noop); }
   }
   function noop() {}
 
@@ -252,7 +258,7 @@
     window.claude.use('room').then(function (room) { if (room) { Net.room = room; if (S.phase === 'home') render(); } }).catch(noop);
     window.claude.use('sample').then(function (s) { Net.sample = s || null; }).catch(noop);
   }
-  function sendFrame() { if (!Net.r || !frameT) return; if (Net.r.frame) Net.r.frame(frameT); else Net.r.presence({ f: frameT }).catch(noop); }
+  function sendFrame() { if (!Net.r || !frameT) return; frameT[53] = Math.round(performance.now() / 10); if (Net.r.frame) Net.r.frame(frameT); else Net.r.presence({ f: frameT }).catch(noop); }
   function pubState() { if (Net.r) { S.ts = Date.now(); Net.r.presence({ g: clone(S) }).catch(noop); } }
   function hostGame() {
     var code = '', abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; for (var i = 0; i < 4; i++) code += abc[Math.floor(Math.random() * abc.length)];
@@ -288,13 +294,13 @@
   }
   function onFrame(f) {
     if (auth || !Array.isArray(f) || f.length < 54) return;
-    if (frameT && f.join() === frameT.join()) return;
+    if (frameT && f.length === frameT.length && f.slice(0, 53).join() === frameT.slice(0, 53).join() && f[54] === frameT[54]) return;
     var now = Date.now(), nowP = performance.now(), fb = Net.buf = Net.buf || [], ft = f[53] * 10;
     if (Net.frameAt) { var gap = Math.min(1000, now - Net.frameAt); Net.gap = Net.gap == null ? gap : Net.gap * 0.85 + gap * 0.15; }
     Net.frameAt = now;
     if (fb.length && (ft < fb[fb.length - 1].t || ft - fb[fb.length - 1].t > 3000)) { fb.length = 0; Net.off = null; }
-    fb.push({ t: ft, f: f }); if (fb.length > 16) fb.shift();
-    Net.off = Net.off == null ? nowP - ft : Math.min(Net.off + 0.3, nowP - ft);
+    fb.push({ t: ft, f: f, d: nowP - ft }); if (fb.length > 16) fb.shift();
+    var mo = Infinity; fb.forEach(function (q) { if (q.d < mo) mo = q.d; }); Net.off = mo; // the quickest recent delivery marks the true clock difference
     frameT = f;
   }
   // a guest keeps sending its plan until the host shows it as received, so one lost message cannot freeze the game
@@ -325,7 +331,7 @@
 
   // ---------- rendering: shell ----------
   function render() {
-    renderHud();
+    renderHud(); watchFlash();
     var sc = $('#screen');
     if (S.phase === 'live') { if (ui.built !== 'live' + S.pos) buildLive(sc); updateLive(); return; }
     ui.built = '';
@@ -371,6 +377,7 @@
         if (!j || !Net.room || Date.now() - j.t > 6 * 3600 * 1000) return null;
         return h('.card', h('h3', { text: 'You were in a game' }), h('.row', h('button.btn.primary.grow', { text: 'Rejoin game ' + j.code, onclick: function () { joinGame(j.code); } }), h('button.btn', { text: 'Forget', onclick: function () { try { localStorage.removeItem('sideline.join'); } catch (e) { /* fine */ } render(); } })));
       })(),
+      h('button.btn.small', { style: 'align-self:flex-start', text: 'Sound: ' + (soundOn() ? 'on' : 'off'), onclick: function () { try { localStorage.setItem('sideline.sound', soundOn() ? 'off' : 'on'); } catch (e) { /* fine */ } render(); } }),
       h('button.btn.primary', { text: 'Play on one phone', onclick: function () { auth = true; me = 0; S.mode = 'local'; startDraft(); } }),
       Net.room ? h('.card', h('h3', { text: 'Two phones' }),
         h('p.note', { text: Net.fb ? 'Both coaches open this link on their own phone. One hosts, the other joins with the code.' : 'Both coaches open this page signed in. One hosts, the other joins with the code.' }),
@@ -425,6 +432,29 @@
   function chipRow(list, cur, on) { return h('.chips', list.map(function (o) { return h('button.chip' + (cur === o[0] ? '.on' : ''), { text: o[1], onclick: function () { on(o[0]); render(); } }); })); }
   function lineupStrip(t) { return h('.lineup', names(t).map(function (p, i) { return h('div', h('b', { text: (i + 1) + ' \u00b7 ' + p.r.ovr }), p.tag); })); }
   function field(label, chips, note) { return h('.field', h('h4', { text: label }), chips, note ? h('p.note', { text: note }) : null); }
+  function situation() {
+    var rem = S.total - S.pos, a = S.off, mineL = Math.ceil(rem / 2), oppL = Math.floor(rem / 2), d = S.score[a] - S.score[1 - a];
+    var lead = d === 0 ? 'Tied at ' + S.score[0] : TEAM[d > 0 ? a : 1 - a] + ' by ' + Math.abs(d);
+    if (rem === 1) return lead + '. Last possession of the game: ' + (d < 0 ? TEAM[a] + ' needs ' + (-d) + ' to tie' + (-d < 3 ? ', ' + (1 - d) + ' to win.' : '.') : d === 0 ? 'any score wins it for ' + TEAM[a] + '.' : TEAM[1 - a] + ' needs a miracle.');
+    if (rem === 2) return lead + '. One possession left for each team.';
+    return lead + '. ' + TEAM[a] + ' has ' + mineL + ' possessions left, ' + TEAM[1 - a] + ' ' + oppL + '.';
+  }
+  function sitLine() { return h('p.sit' + (S.total - S.pos <= 2 ? '.late' : ''), { text: situation() }); }
+  // one tap game plans. They fill in the form below, which can still be changed before Done.
+  function quickOff(f, t) {
+    var pl = names(t), star = 0, big = 0; pl.forEach(function (p, i) { if (p.r.ovr > pl[star].r.ovr) star = i; if (p.r.ins + p.r.str > pl[big].r.ins + pl[big].r.str) big = i; });
+    function play(id) { var p = BB.PLAYS.filter(function (q) { return q.id === id; })[0]; return p ? cleanPlay(p) : null; }
+    var Q = [['Pick and roll', 'pnr', 'hpnr', null], ['Free a shooter', 'motion', 'pin', null], ['Attack the rim', 'dnk', null, null], ['Feed the post', 'post', 'post', big], ['Give it to ' + pl[star].tag, 'iso', null, star]];
+    return h('.card.quick', h('h3', { text: 'Quick call' }), h('.chips', Q.map(function (q) {
+      return h('button.chip' + (ui.quick === 'o' + q[0] ? '.on' : ''), { text: q[0], onclick: function () { f.style = q[1]; f.plays = [q[2] ? play(q[2]) : null, null]; f.focus = q[3]; ui.quick = 'o' + q[0]; render(); } });
+    })), h('p.note', { text: 'One tap sets everything below. Tap Done, or change any part first.' }));
+  }
+  function quickDef(f) {
+    var Q = [['Solid', 'man', 'drop', 'normal', 'help'], ['Pack the paint', 'man', 'drop', 'sag', 'help'], ['Pressure up', 'man', 'hedge', 'tight', 'home'], ['Switch everything', 'switch', 'switch', 'normal', 'home'], ['Zone', 'zone', 'drop', 'normal', 'help']];
+    return h('.card.quick', h('h3', { text: 'Quick call' }), h('.chips', Q.map(function (q) {
+      return h('button.chip' + (ui.quick === 'd' + q[0] ? '.on' : ''), { text: q[0], onclick: function () { f.style = q[1]; f.cover = q[2]; f.press = q[3]; f.help = q[4]; ui.quick = 'd' + q[0]; render(); } });
+    })), h('p.note', { text: 'One tap sets the scheme below. Your matchups stay as they are.' }));
+  }
   function scoutCard(t, onOff) { // what the other bench showed the last time it was in this spot
     var sc = S.scout && S.scout[1 - t], mine = S.scout && S.scout[t], txt = sc && (onOff ? sc.def : sc.off), own = mine && (onOff ? mine.off : mine.def);
     if (!txt && !own) return null;
@@ -446,6 +476,7 @@
         var c = ui.localStep === 0 ? offC : defC;
         return h('.center',
           lastResult(),
+          sitLine(),
           h('span.tag.t' + c, { text: TEAM[c] + ' coach' }),
           h('h2', { text: 'Pass the phone to the ' + TEAM[c] + ' coach' }),
           h('p.muted', { text: (c === offC ? 'You have the ball. Set your offense.' : 'You are on defense. Set your scheme.') + ' The other coach should not look.' }),
@@ -474,7 +505,9 @@
     return h('div', h('.pad',
       h('.row', h('span.tag.t' + t, { text: TEAM[t] + ' offense' }), h('span.note.grow', { text: 'You have the ball.' })),
       lastResult(),
+      sitLine(),
       scoutCard(t, true),
+      quickOff(f, t),
       lineupStrip(t),
       h('.card', h('h3', { text: 'Plays' }), playSlot(0), playSlot(1)),
       h('.card', h('h3', { text: 'Freelance style' }), chipRow(BB.OFF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note + ' Used whenever no play is running.' })),
@@ -554,7 +587,9 @@
     return h('div', h('.pad',
       h('.row', h('span.tag.t' + t, { text: TEAM[t] + ' defense' }), h('span.note.grow', { text: 'They have the ball.' })),
       lastResult(),
+      sitLine(),
       scoutCard(t, false),
+      quickDef(f),
       h('.card', h('h3', { text: 'Scheme' }), chipRow(BB.DEF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note })),
       h('.card', h('h3', { text: 'Matchups' }),
         h('p.note', { text: manOn ? (ui.swap != null ? 'Now tap the row to trade assignments with.' : 'Tap two rows to swap who they guard. Tap the chip to sag off or play tight on that man.') : 'Saved, but the zone ignores them.' }),
@@ -965,7 +1000,7 @@
         return h('button.btn', { 'data-k': c[0], text: c[1], onclick: function () {
           if (Date.now() < ui.cool[team]) return;
           if (ui.call && ui.call.team === team && ui.call.k === c[0]) { ui.call = null; updateLive(); return; }
-          if (!c[2].length) { sendCall(team, { k: c[0] }); ui.call = null; } else ui.call = { team: team, k: c[0], steps: c[2], got: [] };
+          if (!c[2].length) { sendCall(team, { k: c[0] }); ui.call = null; } else { ui.call = { team: team, k: c[0], steps: c[2], got: [] }; sendCall(team, { k: 'arm' }); }
           updateLive();
         } });
       }));
@@ -976,10 +1011,12 @@
     add(sc, h('.live', h('#toast', h('.feed', h('span#toastprev'), h('span#toasttxt')), h('span.sc#shotclock')), h('#planbar'), h('#livehint'), h('#courtwrap', cv, h('#feedlist'), h('#flash')), rows));
   }
   function updateLive() {
+    watchFlash();
     var t = $('#toasttxt'); if (!t) return;
     t.textContent = lastLine(); var pv = $('#toastprev'); if (pv) pv.textContent = S.log.length > 1 ? S.log[S.log.length - 2] : '';
     var fd = $('#feedlist'); if (fd) { fd.className = 'bot'; fd.textContent = ''; S.log.slice(-5, -1).forEach(function (l) { add(fd, h('div', { text: l })); }); }
     var fl = $('#flash'); if (fl) { if (S.flash) { fl.textContent = S.flash.txt; fl.className = 'on t' + S.flash.team; } else fl.className = ''; }
+    var cw = $('#courtwrap'); if (cw) cw.classList.toggle('slow', !!S.slow && S.phase === 'live');
     var hint = $('#livehint');
     if (ui.call) { hint.textContent = ui.call.steps[ui.call.got.length].split(':')[1] + '.'; hint.classList.add('on'); } else hint.classList.remove('on');
     document.querySelectorAll('.calls').forEach(function (r) {
@@ -1043,7 +1080,7 @@
   }
   function drawTags(ctx, v, X, Y, r, dpr) {
     ctx.font = '700 ' + Math.round(11 * dpr) + 'px "Barlow Condensed", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    for (var k = 44; k + 2 < v.length; k += 3) {
+    for (var k = 44; k < 53; k += 3) {
       var c = v[k], txt = TAGS[c]; if (!txt) continue;
       var i = v[k + 1], age = v[k + 2] / 10, al = Math.max(0, Math.min(1, (1.4 - age) / 0.4)), px = X(v[5 + i * 3] / 10), py = Y(v[6 + i * 3] / 10) - r - 11 * dpr - age * 5 * dpr, w = ctx.measureText(txt).width / 2 + 6 * dpr, hh = 8.5 * dpr;
       var good = c === 1 || c === 3 || c === 6 || c === 9 || c === 13;
@@ -1125,6 +1162,13 @@
       });
     }
     if (v.length >= 53) drawTags(ctx, v, X, Y, r, dpr);
+    if (v.length >= 56 && v[54] >= 0 && v[54] < 10) { // the shot is up: how good was the look
+      var sx = X(v[5 + v[54] * 3] / 10), sy = Y(v[6 + v[54] * 3] / 10) - r - 16 * dpr, pc = v[55], lab = pc + '%';
+      ctx.font = '700 ' + Math.round(22 * dpr) + 'px "Barlow Condensed", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      var ww = ctx.measureText(lab).width / 2 + 9 * dpr, hh2 = 15 * dpr; ctx.fillStyle = pc >= 50 ? '#1f9d55' : pc >= 36 ? '#f08a24' : '#18202e'; ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(sx - ww, sy - hh2, ww * 2, hh2 * 2, 8 * dpr); else ctx.rect(sx - ww, sy - hh2, ww * 2, hh2 * 2);
+      ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(lab, sx, sy + dpr);
+    }
     var pb = $('#planbar'); if (pb) { var pt2 = planText(v), ps = pt2[0] + '|' + pt2[1]; if (pb.getAttribute('data-s') !== ps) { pb.setAttribute('data-s', ps); pb.textContent = ''; if (pt2[0]) add(pb, h('span.t' + S.off, { text: pt2[0] })); if (pt2[1]) add(pb, h('span.t' + (1 - S.off), { text: pt2[1] })); } }
     var gx = X(bx), gy = Y(by), br = Math.max(4 * dpr, 0.75 * s) * (1 + bz * 0.05);
     if (holder >= 0) { gx += r * 0.8; gy += r * 0.8; }
@@ -1135,6 +1179,31 @@
     document.querySelectorAll('.calls').forEach(function (row) { var cool = now < ui.cool[+row.getAttribute('data-team')]; row.querySelectorAll('button').forEach(function (b) { if (b.disabled !== cool) b.disabled = cool; }); });
   }
 
+  var AC = null, flashKey = '';
+  function soundOn() { try { return localStorage.getItem('sideline.sound') !== 'off'; } catch (e) { return true; } }
+  document.addEventListener('pointerdown', function () { try { if (!AC) { var C = window.AudioContext || window.webkitAudioContext; if (C) AC = new C(); } if (AC && AC.state === 'suspended') AC.resume(); } catch (e) { /* no sound */ } }, true);
+  function tone(f0, f1, t0, dur, type, vol) {
+    var o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime + t0; o.type = type || 'sine'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.16, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function sfx(kind) {
+    if (!AC || !soundOn()) return;
+    try {
+      if (kind === 'make') { tone(660, 660, 0, 0.12, 'triangle'); tone(990, 990, 0.1, 0.22, 'triangle'); }
+      else if (kind === 'miss') tone(170, 90, 0, 0.22, 'sine', 0.22);
+      else if (kind === 'to') { tone(1900, 2300, 0, 0.09, 'square', 0.05); tone(1900, 2300, 0.13, 0.16, 'square', 0.05); }
+      else if (kind === 'end') tone(220, 215, 0, 0.9, 'sawtooth', 0.09);
+      else if (kind === 'slow') tone(300, 140, 0, 0.3, 'sine', 0.1);
+    } catch (e) { /* no sound */ }
+    try { if (navigator.vibrate) navigator.vibrate(kind === 'make' ? [30, 40, 30] : 25); } catch (e) { /* fine */ }
+  }
+  function watchFlash() { // runs on both phones whenever the screen updates
+    var k = S.phase + ':' + S.pos + ':' + (S.flash && !S.flash.start ? S.flash.txt : '') + ':' + (S.slow ? 's' : '');
+    if (k === flashKey) return; var was = flashKey; flashKey = k;
+    if (S.phase === 'final' && was.indexOf('final') !== 0) { sfx('end'); return; }
+    if (S.slow && was.slice(-2) !== ':s') { sfx('slow'); return; }
+    if (S.phase === 'live' && S.flash && !S.flash.start && was.split(':')[2] === '') sfx(S.flash.txt.charAt(0) === '+' ? 'make' : (S.flash.txt === 'Stop' || S.flash.txt === 'No points') ? 'miss' : 'to');
+  }
   function noteErr(m, where) { try { localStorage.setItem('sideline.err', JSON.stringify({ t: Date.now(), m: String(m).slice(0, 160), w: String(where || '').slice(0, 60), b: window.SIDELINE_BUILD || '' })); } catch (e) { /* fine */ } }
   window.addEventListener('error', function (e) { noteErr(e.message, (e.filename || '').split('/').pop().split('?')[0] + ':' + e.lineno + ':' + e.colno); });
   window.addEventListener('unhandledrejection', function (e) { noteErr(e.reason && e.reason.message || e.reason, 'promise'); });
@@ -1148,7 +1217,7 @@
     if (raw < 0.5) { ui.slow = (ui.slow || 0) * 0.97 + (raw > 0.03 ? 1 : 0) * 0.03; if (ui.slow > 0.5 && !ui.lowRes) ui.lowRes = true; } // a struggling phone draws the court at lower resolution
     if (auth && sim && startHold > 0) { startHold -= dt; if (startHold <= 0) { S.flash = null; if (S.mode === 'host') pubState(); updateLive(); } if (S.mode === 'host' && Net.r && ts - lastPub > 200) { lastPub = ts; sendFrame(); } drawLive(); return; }
     if (auth && sim) {
-      acc += dt * SPEED; var n = 0; liveFor += dt; // the walk up the floor plays a little faster
+      acc += dt * SPEED * (Date.now() < slowUntil ? 0.28 : 1); var n = 0; if (S.slow && Date.now() >= slowUntil) { S.slow = null; updateLive(); } liveFor += dt; // the walk up the floor plays a little faster
       try { while (acc >= 1 / 60 && n++ < 6) { sim.step(1 / 60); acc -= 1 / 60; } }
       catch (err) { acc = 0; noteErr(err && err.message, 'sim ' + (err && err.stack ? String(err.stack).split('\n')[1] : '')); replayPossession('That possession hit an error and was restarted.'); return; }
       if (liveFor > 70 && !sim.done) { replayPossession('That possession stalled and was restarted.'); return; }
@@ -1191,7 +1260,7 @@
   }
 
   // test hook for automated checks, harmless in normal use
-  window.__sideline = { state: function () { return S; }, sim: function () { return sim; }, speed: function (v) { SPEED = v; } };
+  window.__sideline = { state: function () { return S; }, sim: function () { return sim; }, speed: function (v) { SPEED = v; }, net: function () { return Net; } };
 
   var wake = null;
   function keepAwake() { try { if (navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function (w) { wake = w; w.addEventListener('release', function () { wake = null; }); }).catch(noop); } catch (e) { /* not supported */ } }

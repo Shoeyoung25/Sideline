@@ -157,7 +157,7 @@
       this.ev(p.name + ' is fouled by ' + s.n1.name + '. ' + made + ' of 2 free throws.', made ? 'score' : 'miss');
       this.finish('ft', made, true); return;
     }
-    this.lastShot = { who: p.name, type: s.type, pm: s.pm, d1: s.d1, by: s.n1 ? s.n1.name : '' };
+    this.lastShot = { i: p.i, who: p.name, type: s.type, pm: s.pm, d1: s.d1, by: s.n1 ? s.n1.name : '' };
     var make = this.rand() < s.pm; this.box[p.i][4]++;
     var lp = o.lastPass; this.astBy = make && lp && lp.to === p.slot && this.t - lp.t < 4.5 ? lp.from : -1;
     (this.shots = this.shots || []).push([s.type, make ? 1 : 0, Math.round(s.d1)]);
@@ -898,7 +898,8 @@
     a.push(o && (ph === 1 || ph === 2) ? o.pi : -1, o && ph === 2 ? o.bi : 0, ph);
     var tg = (this.tags || []).filter(function (q) { return t - q.t < 1.4; });
     for (var k = 0; k < 3; k++) { var q = tg[k]; a.push(q ? q.c : 0, q ? q.i : 0, q ? Math.round((t - q.t) * 10) : 0); }
-    a.push(Math.round(t * 100)); // game clock in hundredths, so the other phone can play frames back evenly
+    a.push(Math.round(t * 100)); // slot 53: replaced by the host's own clock before sending
+    var sf = this.ball.fly && this.ball.fly.type === 'shot' && this.lastShot ? this.lastShot : null; a.push(sf ? sf.i : -1, sf ? Math.round(sf.pm * 100) : 0); // a shot in the air: who took it and how good the look was
     return a;
   };
 
