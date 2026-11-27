@@ -33,6 +33,7 @@
   var S = fresh(), me = 0, auth = true, sim = null, pend = [null, null];
   var saved = { off: [null, null], def: [null, null] };
   var ui = { localStep: 0, sort: 'ovr', call: null, cool: [0, 0], built: '', fo: null, fd: null, err: '', sentPos: -1, tab: null };
+  var evStart = 0;
   var frameT = null, viewCur = null, cam = null, evSeen = 0, endHold = 0, startHold = 0, liveFor = 0, acc = 0, lastTs = 0, lastPub = 0;
   var Net = { room: null, r: null, sample: null, guestPeer: null, seen: { pk: 0, pl: 0, lc: 0 }, lastG: '' };
   var custom = loadCustom();
@@ -108,7 +109,7 @@
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
-  function toCoach() { S.phase = 'coach'; S.rd = (S.rd || 0) + 1; S.done = [false, false]; pend = [null, null]; ui.localStep = 0; ui.fo = null; ui.fd = null; ui.call = null; saveGame(); }
+  function toCoach() { S.phase = 'coach'; S.rd = (S.rd || 0) + 1; S.done = [false, false]; pend = [null, null]; ui.localStep = 0; ui.fo = null; ui.fd = null; ui.call = null; ui.swap = null; saveGame(); }
   // The game is saved on this phone at the start of every possession, so a refresh or a crash loses at most the possession in progress.
   function saveGame() { if (!auth) return; try { localStorage.setItem('sideline.game', JSON.stringify({ t: Date.now(), S: S, saved: saved })); } catch (e) { /* best effort */ } }
   function clearGame() { try { localStorage.removeItem('sideline.game'); } catch (e) { /* fine */ } }
@@ -140,6 +141,7 @@
     if (S.phase !== 'coach' || S.done[coach]) return;
     pend[coach] = coach === S.off ? cleanOff(plan) : cleanDef(plan); S.done[coach] = true;
     if (S.done[0] && S.done[1]) {
+      sim.lastShot = null; evStart = sim.events.length;
       sim.startPossession(S.off, pend[S.off], pend[1 - S.off]);
       S.now = { off: descOff(pend[S.off]), def: descDef(pend[1 - S.off]), n: pend[S.off].plays.filter(Boolean).map(function (q) { return q.beats.length; }), nm: pend[S.off].plays.filter(Boolean).map(function (q) { return q.name; }), st: styleName(BB.OFF_STYLES, pend[S.off].style) };
       var look = { man: 'man to man', 'switch': 'man to man, switching everything', zone: 'a 2-3 zone', press: 'a full court press' }[sim.d.style];
@@ -153,6 +155,10 @@
   function descDef(p) { var z = p.style === 'zone'; return styleName(BB.DEF_STYLES, p.style) + (z ? '' : ', ' + (p.style === 'switch' ? 'switch' : p.cover) + ' on screens') + ', ' + { sag: 'sagging off', normal: 'normal pressure', tight: 'tight pressure' }[p.press] + ', ' + (p.help === 'help' ? 'helping on drives' : 'staying home') + (p.rule ? '. Emphasis: ' + ruleText(p.rule, names(S.off)) : ''); }
   function endPossession() {
     S.score = sim.score.slice(); S.pos++; S.box = sim.box.map(function (r) { return r.slice(); });
+    S.plog = sim.events.slice(evStart).filter(function (x) { return x.kind !== 'i' || /breaks down/.test(x.txt); }).map(function (x) { return x.txt; }).slice(-7);
+    var ls = sim.lastShot; S.look = null;
+    if (ls) { var kind = { three: 'three', rim: 'shot at the rim', 'short': 'short shot', mid: 'mid-range jumper' }[ls.type], open = ls.d1 >= 6 ? 'Wide open' : ls.d1 >= 4 ? 'Open' : ls.d1 >= 2.5 ? 'Contested' : 'Heavily contested';
+      S.look = { txt: open + ' ' + kind + ' for ' + ls.who + ': a ' + Math.round(ls.pm * 100) + '% look' + (ls.d1 < 6 && ls.by ? ', ' + ls.by + ' ' + Math.max(1, Math.round(ls.d1)) + ' ft away.' : '.'), good: ls.pm * (ls.type === 'three' ? 3 : 2) >= 1.05 }; }
     if (S.now) { S.scout = S.scout || [{}, {}]; S.scout[S.off].off = S.now.off; S.scout[1 - S.off].def = S.now.def; S.scout[S.off].res = S.flash ? S.flash.txt : ''; }
     if (S.pos >= S.total) {
       if (S.score[0] === S.score[1]) { S.total += 2; S.ot = true; S.log.push('Tied after regulation. One more possession each.'); }
@@ -173,6 +179,7 @@
   function sendPick(coach, id) { if (auth) doPick(coach, id); else if (Net.r) Net.r.presence({ pk: { n: Date.now(), id: id } }).catch(noop); }
   function sendPlan(coach, plan) {
     saved[coach === S.off ? 'off' : 'def'][coach] = clone(plan);
+    if (!auth) { try { localStorage.setItem('sideline.saved', JSON.stringify({ code: S.code, saved: saved })); } catch (e) { /* fine */ } }
     if (auth) submitPlan(coach, plan);
     else if (Net.r) { ui.sentPos = S.rd; ui.sentAt = Date.now(); setTimeout(render, 4300); Net.r.presence({ pl: { n: Date.now(), pos: S.pos, rd: S.rd, plan: plan } }).catch(noop); render(); }
   }
@@ -230,7 +237,8 @@
     if (code.length !== 4) { ui.err = 'Enter the 4 letter code from the host phone.'; render(); return; }
     ui.err = 'Joining ' + code + '...'; render();
     Net.room.join('g-' + code.toLowerCase()).then(function (r) {
-      Net.r = r; auth = false; me = 1; S = fresh(); S.mode = 'guest'; S.code = code; S.phase = 'joining'; ui.err = ''; Net.lastG = '';
+      Net.r = r; auth = false; me = 1; S = fresh(); S.mode = 'guest'; S.code = code;
+      try { var sv = JSON.parse(localStorage.getItem('sideline.saved') || 'null'); saved = sv && sv.code === code && sv.saved && sv.saved.off && sv.saved.def ? sv.saved : { off: [null, null], def: [null, null] }; } catch (e) { /* fine */ } S.phase = 'joining'; ui.err = ''; Net.lastG = '';
       r.presence({ q: Date.now() }).catch(noop); r.onPeers(onPeersGuest); try { localStorage.setItem('sideline.join', JSON.stringify({ code: code, t: Date.now() })); } catch (e) { /* fine */ } render();
     }).catch(function () { ui.err = 'Could not join from this view.'; render(); });
   }
@@ -381,7 +389,9 @@
   }
   function lastResult() {
     if (!S.flash || S.flash.start) return h('.banner', { text: lastLine() });
-    return h('.banner.res', h('b.t' + S.flash.team, { text: S.flash.txt }), h('span', { text: S.flash.sub || '' }));
+    return h('div', h('.banner.res', h('b.t' + S.flash.team, { text: S.flash.txt }), h('span', { text: S.flash.sub || '' })),
+      S.look || (S.plog && S.plog.length) ? h('details.story', h('summary', S.look ? h('span.look' + (S.look.good ? '.good' : ''), { text: S.look.txt }) : h('span.look', { text: 'How it played out' })),
+        (S.plog || []).map(function (l) { return h('div', { text: l }); })) : null);
   }
 
   function viewCoach() {
@@ -466,12 +476,25 @@
     if (!ui.fd) { ui.fd = saved.def[t] ? clone(saved.def[t]) : { style: 'man', match: [0, 1, 2, 3, 4], cover: 'drop', press: 'normal', pp: {}, help: 'help', after: 'box' }; ui.fd.rule = null; ui.fd.ruleText = ''; ui.fd.ruleMsg = ''; }
     var f = ui.fd, st = BB.DEF_STYLES.filter(function (s) { return s.id === f.style; })[0], mine = names(t), opp = names(1 - t);
     var manOn = f.style === 'man' || f.style === 'switch' || f.style === 'press' || f.style === 'mix';
+    function edge(d, o) { // what a coach would notice about this pairing
+      var out = [], ds = d.r.size - o.r.size, dv = d.r.spd - o.r.spd;
+      if (ds <= -2) out.push(['bad', 'Gives up size']); else if (ds >= 2) out.push(['ok', 'Bigger']);
+      if (dv <= -8) out.push(['bad', 'Slower']); else if (dv >= 8) out.push(['ok', 'Quicker']);
+      if (o.r.three >= 88 && d.r.pd < 75) out.push(['bad', 'Shooter on a weak defender']);
+      if (o.r.ins >= 90 && d.r.rim < 70 && d.r.pd < 78) out.push(['bad', 'Soft inside']);
+      return out;
+    }
     function matchRow(j) {
-      var sel = h('select', { id: 'match' + j, 'aria-label': 'Who ' + mine[j].tag + ' guards', onchange: function () { var v = +sel.value, k = f.match.indexOf(v); if (k >= 0) f.match[k] = f.match[j]; f.match[j] = v; render(); } },
-        opp.map(function (p, i) { return h('option', { value: i, selected: f.match[j] === i, text: (i + 1) + ' ' + p.tag + ' \u00b7 ' + p.pos + ' \u00b7 3PT ' + p.r.three + ' \u00b7 Close ' + p.r.ins }); }));
-      var o = f.match[j], ps = h('select', { id: 'pp' + j, 'aria-label': 'Pressure on ' + opp[o].tag, onchange: function () { if (ps.value) f.pp[o] = ps.value; else delete f.pp[o]; } },
-        [['', 'Team'], ['sag', 'Sag off'], ['tight', 'Tight']].map(function (x) { return h('option', { value: x[0], selected: (f.pp[o] || '') === x[0], text: x[1] }); }));
-      return h('.match', h('span', { text: (j + 1) + ' ' + mine[j].tag }), sel, ps);
+      var o = f.match[j], d = mine[j], op = opp[o], pv = f.pp[o] || '', on = ui.swap === j;
+      return h('.mrow' + (on ? '.on' : ''), { id: 'match' + j, role: 'button', onclick: function () {
+          if (ui.swap == null || ui.swap === j) ui.swap = on ? null : j; else { var k = ui.swap, tmp = f.match[k]; f.match[k] = f.match[j]; f.match[j] = tmp; ui.swap = null; }
+          render();
+        } },
+        h('.who', h('b.t' + t, { text: (j + 1) + ' ' + d.tag }), h('span', { text: 'DEF ' + d.r.pd + ' / ' + d.r.rim })),
+        h('.arr', { text: '\u2192' }),
+        h('.who', h('b.t' + (1 - t), { text: (o + 1) + ' ' + op.tag }), h('span', { text: op.pos + ' \u00b7 3PT ' + op.r.three + ' \u00b7 Close ' + op.r.ins }),
+          h('.edges', edge(d, op).map(function (x) { return h('i.' + x[0], { text: x[1] }); }))),
+        h('button.chip.pp' + (pv ? '.on' : ''), { id: 'pp' + j, text: pv === 'sag' ? 'Sag off' : pv === 'tight' ? 'Tight' : 'Team', 'aria-label': 'Pressure on ' + op.tag, onclick: function (ev) { ev.stopPropagation(); var nx = pv === '' ? 'sag' : pv === 'sag' ? 'tight' : ''; if (nx) f.pp[o] = nx; else delete f.pp[o]; render(); } }));
     }
     var ruleIn = h('input#rule', { type: 'text', maxlength: '120', placeholder: 'e.g. double ' + opp[4].tag + ' if he posts up', value: f.ruleText || '', 'aria-label': 'Emphasis rule', oninput: function () { f.ruleText = ruleIn.value; f.rule = null; } });
     function readRule() {
@@ -491,7 +514,7 @@
       scoutCard(t, false),
       h('.card', h('h3', { text: 'Scheme' }), chipRow(BB.DEF_STYLES.map(function (s) { return [s.id, s.name]; }), f.style, function (v) { f.style = v; }), h('p.note', { text: st.note })),
       h('.card', h('h3', { text: 'Matchups' }),
-        h('p.note', { text: manOn ? 'Your defender, who he guards, how close. Kept until you change them.' : 'Saved, but the zone ignores them.' }),
+        h('p.note', { text: manOn ? (ui.swap != null ? 'Now tap the row to trade assignments with.' : 'Tap two rows to swap who they guard. Tap the chip to sag off or play tight on that man.') : 'Saved, but the zone ignores them.' }),
         [0, 1, 2, 3, 4].map(matchRow)),
       h('.card',
         field('Ball screens', chipRow([['drop', 'Drop'], ['switch', 'Switch'], ['hedge', 'Hedge'], ['trap', 'Trap']], cov, function (v) { f.cover = v; }),

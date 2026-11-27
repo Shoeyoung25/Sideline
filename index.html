@@ -98,6 +98,14 @@ input[type=text], select { border: 1px solid var(--line); border-radius: 8px; pa
 .slot { display: grid; grid-template-columns: 84px 1fr; gap: 10px; align-items: center; }
 .slot canvas { width: 84px; height: 79px; border-radius: 6px; border: 1px solid var(--line); background: var(--wood); }
 .slot .nm { font-weight: 600; }
+.mrow { display: grid; grid-template-columns: 1fr 14px 1.35fr auto; gap: 6px; align-items: center; padding: 7px 8px; border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; cursor: pointer; background: var(--panel); }
+.mrow.on { border-color: var(--ink, #18202e); box-shadow: 0 0 0 2px var(--hi); }
+.mrow .who { display: flex; flex-direction: column; min-width: 0; font-size: 12px; color: var(--muted); }
+.mrow .who b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .mrow b.t0 { color: var(--blue); } .mrow b.t1 { color: var(--red); }
+.mrow .arr { color: var(--muted); } .mrow .pp { padding: 5px 9px; font-size: 12.5px; }
+.edges i { font-style: normal; font-size: 11px; font-weight: 600; margin-right: 6px; } .edges .bad { color: var(--red); } .edges .ok { color: #1f9d55; }
+.story { margin-top: 6px; font-size: 13px; } .story summary { cursor: pointer; } .story div { color: var(--muted); padding: 2px 0 0 14px; }
+.look { font-weight: 600; } .look.good { color: #1f9d55; }
 .match { display: grid; grid-template-columns: 1fr 1.25fr 86px; gap: 6px; align-items: center; font-size: 13.5px; }
 .match select { padding: 7px 6px; font-size: 13.5px; }
 .lineup { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; font-size: 11.5px; text-align: center; }
@@ -188,7 +196,7 @@ h4 { font-family: var(--f-display); font-size: 14px; font-weight: 600; text-tran
    (bypassing the cache) which build is current, reloads if this page is older, and loads the game files
    under that build's name so a stale copy can never be used. */
 (function () {
-  var BUILD = 'Nov 26 17:47'; window.SIDELINE_BUILD = BUILD;
+  var BUILD = 'Nov 26 18:08'; window.SIDELINE_BUILD = BUILD;
   function load(v) {
     var files = ['data.js', 'engine.js', 'app.js'], i = 0;
     (function next() { if (i >= files.length) return; var s = document.createElement('script'); s.src = files[i++] + '?v=' + encodeURIComponent(v); s.onload = next; s.onerror = next; document.body.appendChild(s); })();

@@ -57,6 +57,7 @@
     this.ball.h = this.op(0).i; this.ball.x = this.op(0).x; this.ball.y = this.op(0).y;
   };
 
+  // startPossession clears lastShot below
   Sim.prototype.startPossession = function (offTeam, po, pdn) {
     var self = this, i, p;
     this.offTeam = offTeam; this.defTeam = 1 - offTeam; this.done = null; this.sc = 24;
@@ -149,6 +150,7 @@
       this.ev(p.name + ' is fouled by ' + s.n1.name + '. ' + made + ' of 2 free throws.', made ? 'score' : 'miss');
       this.finish('ft', made, true); return;
     }
+    this.lastShot = { who: p.name, type: s.type, pm: s.pm, d1: s.d1, by: s.n1 ? s.n1.name : '' };
     var make = this.rand() < s.pm; this.box[p.i][4]++;
     var lp = o.lastPass; this.astBy = make && lp && lp.to === p.slot && this.t - lp.t < 4.5 ? lp.from : -1;
     (this.shots = this.shots || []).push([s.type, make ? 1 : 0, Math.round(s.d1)]);
