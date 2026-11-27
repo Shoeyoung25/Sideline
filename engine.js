@@ -127,7 +127,7 @@
     var type = d < 5.5 ? 'rim' : isThree ? 'three' : d < 11 ? 'short' : 'mid';
     var n1 = null, d1 = 99, d2 = 99, n2 = null, k, dd;
     for (k = 0; k < 5; k++) {
-      var q = defs[k]; dd = pd(q, p) + (q.stun > 0.15 ? 1.6 : q.trailUntil > this.t ? 1.1 : 0);
+      var q = defs[k]; dd = pd(q, p) + (q.stun > 0.15 ? 1.0 : q.trailUntil > this.t ? 1.1 : 0);
       if (closeBy) dd = Math.max(type === 'rim' ? 0.9 : 1.3, dd - closeBy);
       if (dd < d1) { d2 = d1; n2 = n1; d1 = dd; n1 = q; } else if (dd < d2) { d2 = dd; n2 = q; }
     }
@@ -146,7 +146,7 @@
       else if (type === 'short') base = 0.43 + (r.ins - 75) * 0.004;
       else base = 0.40 + (r.mid - 76) * 0.004;
       var c = 0;
-      if (d1 >= 6) c = -0.05;
+      if (d1 >= 6) c = -0.03;
       else { c = (1 - Math.max(0, d1 - 1.8) / 4.2) * clamp(0.17 + (n1.r.pd - 60) / 40 * 0.07 + (n1.r.size - r.size) * 0.021, 0.05, 0.3); }
       pm = base - c;
       if (p.dribbled) pm -= 0.035;
@@ -546,6 +546,7 @@
       var hg = o.ho.g, hr = o.ho.r;
       if (pd(hg, hr) < 2.8) {
         o.ho = null; this.ball.h = hr.i; hr.dribbled = true; hg.scrUntil = this.t + 1.0;
+        var hgd = this.guardOf(hr); if (hgd && hgd.stun < 0.3 && !this.o.jumped) { hgd.stun = clamp(0.3 + (hg.r.str - hgd.r.str) / 200, 0.2, 0.45); this.tag(1, hgd); } // the man handing it off is a screen: the receiver's defender has to get around him
         var gd = this.guardOf(hr); if (gd) this.applyScreen(gd, hg, hr, hr, this.d.style === 'zone');
         this.ev(hg.name + ' hands off to ' + hr.name + '.', 'play'); o.bt = this.t - 0.2; H = hr;
         if (!(o.defer && o.defer.s === hr.slot)) { hr.tx = hr.x; hr.ty = hr.y; hr.path = null; return; }
