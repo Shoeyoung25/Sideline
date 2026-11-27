@@ -214,7 +214,7 @@
     setInterval(function () { live.forEach(function (r) { r.beat(); }); }, 5000);
     return { join: function (name) {
       // rooms/<name>/s/<phone>: state and intents, one string per key. rooms/<name>/f: the host's latest court frame.
-      var ref = db.ref('rooms/' + name), sref = ref.child('s'), mine = sref.child(myId), last = {}, cache = {}, pend = {}, busy = {}, fBusy = false, fNext = null, fLast = '';
+      var ref = db.ref('rooms/' + name), sref = ref.child('s'), mine = sref.child(myId), last = {}, cache = {}, pend = {}, busy = {}, fBusy = 0, fNext = null, fLast = '';
       function arm() { try { mine.onDisconnect().remove(); } catch (e) { /* best effort cleanup */ } }
       // one write in flight per key. Anything newer replaces what is waiting, so a slow connection never builds a backlog.
       function flush(k) {
@@ -224,10 +224,10 @@
         try { Promise.resolve(mine.update(o)).then(done, done); } catch (e) { done(); }
         setTimeout(done, 4000);
       }
-      function sendF() {
-        if (fBusy || fNext == null) return;
-        var v = fNext, tok = {}, t0 = performance.now(); fNext = null; fBusy = tok;
-        function done() { if (fBusy === tok) { var rt = performance.now() - t0; Net.rtt = Net.rtt == null ? rt : Net.rtt * 0.8 + rt * 0.2; fBusy = false; sendF(); } }
+      function sendF() { // up to three court frames in flight: keeps about 12 a second on a normal link, and still cannot build a backlog on a slow one
+        if (fBusy >= 3 || fNext == null) return;
+        var v = fNext, t0 = performance.now(), fin = false; fNext = null; fBusy++;
+        function done() { if (fin) return; fin = true; var rt = performance.now() - t0; Net.rtt = Net.rtt == null ? rt : Net.rtt * 0.8 + rt * 0.2; fBusy--; sendF(); }
         try { Promise.resolve(ref.update({ f: v })).then(done, done); } catch (e) { done(); }
         setTimeout(done, 1500);
       }
@@ -1238,6 +1238,12 @@
     requestAnimationFrame(loop);
     try { loopBody(ts); } catch (err) { noteErr(err && err.message, 'loop ' + (err && err.stack ? String(err.stack).split('\n')[1] : '')); }
   }
+  // if the host page stops getting animation frames (tab in the background, screen dimmed) keep the game moving on a timer
+  setInterval(function () {
+    if (!(auth && sim && S.phase === 'live' && S.mode === 'host')) return;
+    var late = performance.now() - lastTs; if (late < 400) return;
+    for (var i = 0, n = Math.min(24, Math.floor(late / 50)); i < n; i++) { try { loopBody(lastTs + 50); } catch (e) { noteErr(e && e.message, 'timer loop'); break; } }
+  }, 250);
   function loopBody(ts) {
     var raw = (ts - lastTs) / 1000 || 0, dt = Math.min(0.05, raw); lastTs = ts;
     if (S.phase !== 'live') return;
