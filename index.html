@@ -193,6 +193,8 @@ p.note.fresh { color: #1f7a45; font-weight: 600; }
 .guard canvas { width: 112px; height: auto; border-radius: 8px; } .guard .nm { font-weight: 600; margin-bottom: 6px; } .guard .grow2 > div { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .tip p { margin: 0; font-size: 14px; } .tip { border-left: 4px solid var(--hi); }
 .calls button.alt { border-style: dashed; }
+#watchbar { position: absolute; left: 0; right: 0; bottom: 12px; display: flex; gap: 10px; justify-content: center; z-index: 5; } #watchbar .btn { width: auto; padding: 12px 18px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+.code { font: 700 44px/1 var(--f-display, 'Barlow Condensed', Arial, sans-serif); letter-spacing: .12em; }
 #planbar { display: flex; gap: 6px; padding: 4px 10px; font-size: 12.5px; font-weight: 600; background: var(--panel); border-bottom: 1px solid var(--line); min-height: 26px; overflow: hidden; }
 #planbar span { padding: 2px 8px; border-radius: 999px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 #planbar span:first-child { flex: 0 0 auto; max-width: 70%; }
@@ -220,13 +222,13 @@ p.note.fresh { color: #1f7a45; font-weight: 600; }
    (bypassing the cache) which build is current, reloads if this page is older, and loads the game files
    under that build's name so a stale copy can never be used. */
 (function () {
-  var BUILD = 'Nov 27 06:40'; window.SIDELINE_BUILD = BUILD;
+  var BUILD = 'Nov 27 06:55'; window.SIDELINE_BUILD = BUILD;
   function load(v) {
     var files = ['data.js', 'engine.js', 'app.js'], i = 0;
     (function next() { if (i >= files.length) return; var s = document.createElement('script'); s.src = files[i++] + '?v=' + encodeURIComponent(v); s.onload = next; s.onerror = next; document.body.appendChild(s); })();
   }
   window.sidelineLatest = function () { return fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) { return String(j.v); }); };
-  window.sidelineReload = function (v) { location.replace(location.pathname + '?v=' + encodeURIComponent(v)); };
+  window.sidelineReload = function (v) { var g = (location.search.match(/[?&]g=([A-Za-z0-9]{4,8})/) || [])[1]; location.replace(location.pathname + '?v=' + encodeURIComponent(v) + (g ? '&g=' + g : '')); };
   var asked = (location.search.match(/[?&]v=([^&]+)/) || [])[1];
   window.sidelineLatest().then(function (v) {
     if (v !== BUILD && decodeURIComponent(asked || '') !== v) { window.sidelineReload(v); return; }

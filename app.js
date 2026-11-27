@@ -152,7 +152,7 @@
   }
   function toCoach() { S.phase = 'coach'; S.rd = (S.rd || 0) + 1; S.done = [false, false]; pend = [null, null]; ui.localStep = 0; ui.fo = null; ui.fd = null; ui.call = null; ui.swap = null; ui.pswap = null; ui.quick = null; ui.spotMsg = ''; saveGame(); aiCoach(); }
   // The game is saved on this phone at the start of every possession, so a refresh or a crash loses at most the possession in progress.
-  function saveGame() { if (!auth) return; try { localStorage.setItem('sideline.game', JSON.stringify({ t: Date.now(), S: S, saved: saved })); } catch (e) { /* best effort */ } }
+  function saveGame() { if (!auth || S.mode === 'async') return; try { localStorage.setItem('sideline.game', JSON.stringify({ t: Date.now(), S: S, saved: saved })); } catch (e) { /* best effort */ } }
   function clearGame() { try { localStorage.removeItem('sideline.game'); } catch (e) { /* fine */ } }
   function savedGame() { try { var g = JSON.parse(localStorage.getItem('sideline.game') || 'null'); return g && g.S && Date.now() - g.t < 6 * 3600 * 1000 && Array.isArray(g.S.lineup) && g.S.lineup[0].length === 5 && g.S.lineup[1].length === 5 && (g.S.phase === 'coach' || g.S.phase === 'live') ? g : null; } catch (e) { return null; } }
   function resumeGame(g) {
@@ -260,8 +260,9 @@
   }
 
   // intents: go straight to the game on this phone, or over the room to the host
-  function sendPick(coach, id) { if (auth) doPick(coach, id); else if (Net.r) Net.r.presence({ pk: { u: uid(), id: id } }).catch(noop); }
+  function sendPick(coach, id) { if (S.mode === 'async') { if (coach === me && S.turn === me) asAct(function () { doPick(coach, id); }); return; } if (auth) doPick(coach, id); else if (Net.r) Net.r.presence({ pk: { u: uid(), id: id } }).catch(noop); }
   function sendPlan(coach, plan) {
+    if (S.mode === 'async') { asAct(function () { submitPlan(coach, plan); }); return; }
     saved[coach === S.off ? 'off' : 'def'][coach] = clone(plan);
     if (!auth) { try { localStorage.setItem('sideline.saved', JSON.stringify({ code: S.code, saved: saved })); } catch (e) { /* fine */ } }
     if (auth) submitPlan(coach, plan);
@@ -325,7 +326,7 @@
       };
       live.length = 0; live.push(room);
       return Promise.resolve(room);
-    }, ping: function (n) { // real round trips to the game server from this phone
+    }, raw: function (path) { return db.ref(path); }, ping: function (n) { // real round trips to the game server from this phone
       var id = 'p' + myId, ref = db.ref('rooms/zz-ping/s/' + id), out = [], i = 0;
       return new Promise(function (res) {
         function one() {
@@ -423,11 +424,13 @@
   function render() {
     renderHud(); watchFlash();
     var sc = $('#screen');
+    if (S.mode === 'async' && !ui.watch && S.replay && S.replay.id !== AS.w && S.phase !== 'live') { asWatch(); return; }
     if (S.phase === 'live') { if (ui.built !== 'live' + S.pos) buildLive(sc); updateLive(); return; }
     ui.built = '';
     var keep = sc.scrollTop, key = S.phase + ':' + S.pos + ':' + ui.localStep;
     sc.textContent = '';
     if (S.phase === 'home') add(sc, viewHome());
+    else if (S.mode === 'async' && (S.phase === 'lobby' || S.phase === 'joining')) add(sc, asLobby());
     else if (S.phase === 'lobby') add(sc, viewLobby());
     else if (S.phase === 'joining') add(sc, h('.center', h('h2', { text: 'Joining game ' + S.code }), h('p.muted', { text: Net.fb && ui.conn === false ? 'Connecting to the game server...' : 'Waiting for the host phone. Check the code if nothing happens.' }), h('button.btn', { text: 'Back', onclick: function () { S = fresh(); auth = true; me = 0; render(); } })));
     else if (S.phase === 'draft') add(sc, viewDraft());
@@ -481,7 +484,11 @@
       h('button.btn', { text: 'Two coaches, one phone', onclick: function () { auth = true; me = 0; S.mode = 'local'; S.ai = null; startDraft(); } }),
       Net.room ? h('.card', h('h3', { text: 'Two phones' }),
         h('p.note', { text: Net.fb ? 'Both coaches open this link on their own phone. One hosts, the other joins with the code.' : 'Both coaches open this page signed in. One hosts, the other joins with the code.' }),
-        h('button.btn', { text: 'Host a game', onclick: hostGame }),
+        h('button.btn', { text: 'Host a live game', onclick: hostGame }),
+        Net.room.raw ? h('button.btn.primary', { text: 'Start a turn-based game', onclick: function () { var c = '', abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; for (var i = 0; i < 4; i++) c += abc[Math.floor(Math.random() * abc.length)]; asOpen(c, true); } }) : null,
+        Net.room.raw ? h('button.btn', { text: 'Open a turn-based game with this code', onclick: function () { var inp = $('#joincode'); asOpen(inp ? inp.value : '', false); } }) : null,
+        Net.room.raw && asGames().length ? h('div', h('h4', { text: 'Your turn-based games' }), h('.chips', asGames().map(function (g) { return h('button.chip', { text: g.code + ' \u00b7 ' + TEAM[g.me], onclick: function () { asOpen(g.code, false); } }); }))) : null,
+        h('p.note', { text: 'Turn-based: each coach locks in when he has a minute, the possession plays itself, and you both watch it whenever you open the game. Live: both phones on at once, with live calls.' }),
         Net.room.ping ? h('button.btn.small', { style: 'align-self:flex-start', text: ui.pingMsg === '...' ? 'Testing...' : 'Test this phone\u2019s connection', onclick: function () {
           if (ui.pingMsg === '...') return; ui.pingMsg = '...'; render();
           Net.room.ping(6).then(function (a) { var ok = a.filter(function (x) { return x >= 0; }).sort(function (x, y) { return x - y; }), med = ok.length ? ok[Math.floor(ok.length / 2)] : -1;
@@ -749,6 +756,92 @@
     return h('.card', h('h3', { text: 'Live switches' }), h('.chips', opts.map(function (k) { var on = f.alts.indexOf(k) >= 0, nm = k === 'man' ? 'Man' : k === 'switch' ? 'Switch all' : ZP[k][0]; return h('button.chip' + (on ? '.on' : ''), { text: nm, onclick: function () { if (on) f.alts.splice(f.alts.indexOf(k), 1); else { f.alts.push(k); if (f.alts.length > 2) f.alts.shift(); } render(); } }); })),
       h('p.note', { text: f.alts.length ? 'During the possession you get a button for each of these and can change defenses on the fly.' : 'Pick up to two defenses to keep in your pocket. You can switch to them with one tap while the possession is live.' }));
   }
+  // ---------- turn-based games: each coach locks in whenever he likes, the possession plays itself, both watch it later ----------
+  var AS = { ref: null, rev: 0, code: '', busy: false, hold: null, w: '' };
+  function asGames() { try { var L = JSON.parse(localStorage.getItem('sideline.turns') || '[]'); return Array.isArray(L) ? L : []; } catch (e) { return []; } }
+  function asKeep(code, team, watched) { var all = asGames(), old = all.filter(function (g) { return g.code === code; })[0] || {}, L = all.filter(function (g) { return g.code !== code; }); L.unshift({ code: code, me: team, w: watched != null ? watched : old.w || '', t: Date.now() }); try { localStorage.setItem('sideline.turns', JSON.stringify(L.slice(0, 8))); } catch (e) { /* fine */ } }
+  function asLink() { return location.origin + location.pathname + '?g=' + AS.code; }
+  function asShare(txt) {
+    var url = asLink();
+    if (navigator.share) { navigator.share({ title: 'Sideline', text: txt, url: url }).catch(noop); return; }
+    try { navigator.clipboard.writeText(txt + ' ' + url); ui.err = 'Link copied. Paste it into your messages.'; } catch (e) { ui.err = 'Send them this link: ' + url; } render();
+  }
+  function asOpen(code, create) {
+    if (!Net.room || !Net.room.raw) { ui.err = 'Turn-based games need the game server, which this page cannot reach.'; render(); return; }
+    if (AS.ref) { try { AS.ref.off('value'); } catch (e) { /* fine */ } }
+    code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8); if (code.length < 4) { ui.err = 'Type the 4 letter game code.'; render(); return; }
+    var known = asGames().filter(function (g) { return g.code === code; })[0];
+    AS = { ref: Net.room.raw('rooms/t-' + code.toLowerCase() + '/g'), rev: 0, code: code, busy: false, hold: null, w: known ? known.w : '' };
+    auth = true; me = create ? 0 : known ? known.me : 1; ui.err = ''; ui.watch = null; S = fresh(); S.mode = 'async'; S.code = code; S.phase = create ? 'lobby' : 'joining';
+    if (create) { asKeep(code, 0); asPush(); }
+    AS.ref.on('value', function (sn) { asRecv(sn.val()); }, function () { ui.err = 'The game server refused the connection.'; render(); });
+    render();
+  }
+  function asRecv(v) {
+    if (!v) { if (S.phase === 'joining') { ui.err = 'No turn-based game with code ' + AS.code + ' yet. Check the code.'; render(); } return; }
+    var D; try { D = JSON.parse(v); } catch (e) { return; }
+    if (!D || !D.S || !(D.rev > AS.rev)) return;
+    if (ui.watch) { AS.hold = v; return; }
+    AS.rev = D.rev; S = D.S; S.mode = 'async'; S.code = AS.code; pend = Array.isArray(D.pend) ? D.pend : [null, null]; ui.err = D.S.proto !== PROTO ? 'This game was started on a different version. Refresh the page on both phones.' : '';
+    asKeep(AS.code, me);
+    if (me === 1 && !S.guest && S.phase === 'lobby') { asAct(function () { S.guest = true; startDraft(); S.guest = true; }); return; }
+    render();
+  }
+  function asPush() {
+    AS.rev++; AS.busy = true; var rev = AS.rev, doc = JSON.stringify({ S: S, pend: pend, rev: rev });
+    AS.ref.transaction(function (cur) { var c = null; try { c = cur ? JSON.parse(cur) : null; } catch (e) { c = null; } if (c && c.rev >= rev) return; return doc; }, function (err, ok) {
+      AS.busy = false;
+      if (err || !ok) { ui.err = 'The other coach moved at the same moment. Showing the latest game: do your turn again.'; AS.rev = 0; AS.ref.once('value').then(function (sn) { asRecv(sn.val()); }); }
+      render();
+    });
+  }
+  function simFor() { // either phone can run a possession: rebuild the game from the saved state
+    if (!S.lineup || S.lineup[0].length !== 5 || S.lineup[1].length !== 5) return;
+    sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.score = S.score.slice();
+    if (S.box && S.box.length === 10) sim.box = S.box.map(function (r) { return r.slice(); });
+    sim.begin(S.off); evSeen = 0;
+  }
+  function asAct(fn) { if (AS.busy || ui.watch) return; simFor(); fn(); if (S.phase === 'live') fastSim(); asPush(); render(); }
+  function fastSim() { // both plans are in: play the whole possession now and keep a recording of it
+    var frames = [], logs = [], seen = evStart, guard = 0, k, off = S.off, nowInfo = S.now, posIdx = S.pos, pre = S.score.slice(), sit = S.sitRes;
+    function grab() { frames.push(sim.frame().join(',')); while (seen < sim.events.length) { logs.push([frames.length - 1, sim.events[seen].txt]); seen++; } }
+    while (!sim.done && guard++ < 3600) { sim.step(1 / 60); if (guard % 5 === 0) grab(); }
+    if (!sim.done) sim.finish('to', 0, true);
+    for (k = 0; k < 60; k++) { sim.step(1 / 60); if (k % 5 === 0) grab(); }
+    var dn = sim.done, tx = dn.type === 'make' ? '+' + dn.pts + ' ' + TEAM[off] : dn.type === 'ft' ? (dn.pts ? '+' + dn.pts + ' ' + TEAM[off] : 'No points') : dn.type === 'to' ? (dn.label || 'Turnover') : 'Stop';
+    S.flash = { txt: tx, team: dn.pts ? off : 1 - off, sub: logs.length ? logs[logs.length - 1][1] : '' };
+    endPossession();
+    S.replay = { id: posIdx + ':' + Date.now().toString(36), pos: posIdx, off: off, now: nowInfo, pre: pre, score: S.score.slice(), flash: S.flash, sit: sit, frames: frames, log: logs };
+  }
+  function asWatch() { // show the recorded possession on the live court
+    var real = S, R = S.replay; ui.watch = { real: real, at: performance.now(), done: false, n: -1 };
+    S = clone(real); S.mode = 'async'; S.phase = 'live'; S.pos = R.pos; S.off = R.off; S.now = R.now; S.score = R.pre.slice(); S.flash = null; S.slow = null; S.log = []; S.clutch = false;
+    frameT = R.frames[0].split(',').map(Number); ui.built = ''; render();
+  }
+  function asPlay() {
+    var W = ui.watch, R = W.real.replay, el = (performance.now() - W.at) / 1000 - 0.9, n = R.frames.length, idx = Math.max(0, Math.min(n - 1, Math.floor(el * 12)));
+    if (idx !== W.n) { W.n = idx; frameT = R.frames[idx].split(',').map(Number); var lines = R.log.filter(function (l) { return l[0] <= idx; }).map(function (l) { return l[1]; }); if (lines.length !== S.log.length) { S.log = lines.slice(-6); updateLive(); } }
+    drawLive();
+    if (!W.done && el * 12 > n + 4) {
+      W.done = true; S.flash = R.flash; S.score = R.score.slice(); renderHud(); updateLive();
+      var cw = $('#courtwrap'); if (cw && !$('#watchbar')) add(cw, h('#watchbar', h('button.btn', { text: 'Watch again', onclick: function () { var b = $('#watchbar'); if (b) b.remove(); W.at = performance.now(); W.done = false; W.n = -1; S.flash = null; S.score = R.pre.slice(); S.log = []; trail = []; ballTrail = []; viewCur = null; renderHud(); updateLive(); } }),
+        h('button.btn.primary', { text: 'Continue', onclick: function () { AS.w = R.id; asKeep(AS.code, me, R.id); ui.watch = null; S = W.real; ui.built = ''; var hold = AS.hold; AS.hold = null; if (hold) asRecv(hold); else render(); } })));
+    }
+  }
+  function asLobby() {
+    return h('.pad', h('.card', h('h3', { text: 'Turn-based game' }), h('.code', { text: AS.code }),
+      h('p', { text: S.phase === 'joining' ? 'Opening the game...' : 'Send this game to the other coach. When they open it, the draft starts. You can close this page and come back any time.' }),
+      ui.err ? h('.banner', { text: ui.err }) : null,
+      h('button.btn.primary', { text: 'Send the invite', onclick: function () { asShare('Play me in Sideline. Game code ' + AS.code + '.'); } }),
+      h('button.btn', { text: 'Back to the home screen', onclick: function () { S = fresh(); render(); } })));
+  }
+  function asWait() {
+    return h('.pad', lastResult(), sitLine(), h('.card', h('h3', { text: 'Locked in' }),
+      h('p', { text: 'Your ' + (me === S.off ? 'offense' : 'defense') + ' is set. When the other coach locks in, the possession plays itself. Come back any time to watch it.' }),
+      ui.err ? h('.banner', { text: ui.err }) : null,
+      h('button.btn.primary', { text: 'Tell them it is their turn', onclick: function () { asShare('Your turn in Sideline. Possession ' + (S.pos + 1) + ' of ' + S.total + ', ' + TEAM[0] + ' ' + S.score[0] + ', ' + TEAM[1] + ' ' + S.score[1] + '.'); } }),
+      h('button.btn', { text: 'Back to the home screen', onclick: function () { S = fresh(); render(); } })));
+  }
   function advToggle() { return h('button.btn.small.advbtn', { text: ui.adv ? 'Hide fine tuning' : 'Fine tuning: screens, help, doubles, rebounding', onclick: function () { ui.adv = !ui.adv; render(); } }); }
   function scoutCard(t, onOff) { // what the other bench showed the last time it was in this spot
     var sc = S.scout && S.scout[1 - t], mine = S.scout && S.scout[t], txt = sc && (onOff ? sc.def : sc.off), own = mine && (onOff ? mine.off : mine.def);
@@ -776,6 +869,7 @@
 
   function viewCoach() {
     var offC = S.off, defC = 1 - S.off;
+    if (S.mode === 'async') return S.done[me] ? asWait() : me === offC ? formOffense(me) : formDefense(me);
     if (S.mode === 'local' && S.ai != null) { var hm = 1 - S.ai; return S.done[hm] ? h('.center', h('h2', { text: 'Locked in' })) : hm === offC ? formOffense(hm) : formDefense(hm); }
     if (S.mode === 'local') {
       if (ui.localStep === 0 || ui.localStep === 2) {
@@ -1430,7 +1524,7 @@
         } });
       }));
     }
-    var rows = S.mode === 'local' ? (S.ai != null ? [row(1 - S.ai)] : [row(1 - S.off), row(S.off)]) : [row(me)];
+    var rows = S.mode === 'async' ? [] : S.mode === 'local' ? (S.ai != null ? [row(1 - S.ai)] : [row(1 - S.off), row(S.off)]) : [row(me)];
     var cv = h('canvas#court');
     cv.addEventListener('pointerdown', courtTap);
     add(sc, h('.live', h('#toast', h('.feed', h('span#toastprev'), h('span#toasttxt')), h('span.sc#shotclock')), h('#planbar'), h('#livehint'), h('#courtwrap', cv, h('#feedlist'), h('#flash')), rows));
@@ -1682,6 +1776,7 @@
   function loopBody(ts) {
     var raw = (ts - lastTs) / 1000 || 0, dt = Math.min(0.05, raw); lastTs = ts;
     if (S.phase !== 'live') return;
+    if (S.mode === 'async') { if (ui.watch) asPlay(); return; }
     if (raw < 0.5) { ui.slow = (ui.slow || 0) * 0.97 + (raw > 0.03 ? 1 : 0) * 0.03; if (ui.slow > 0.5 && !ui.lowRes) ui.lowRes = true; } // a struggling phone draws the court at lower resolution
     if (auth && sim && startHold > 0) { startHold -= dt; if (startHold <= 0) { S.flash = null; if (S.mode === 'host') pubState(); updateLive(); } if (S.mode === 'host' && Net.r && ts - lastPub > 200) { lastPub = ts; sendFrame(); } drawLive(); return; }
     if (auth && sim) {
@@ -1734,7 +1829,7 @@
   }
 
   // test hook for automated checks, harmless in normal use
-  window.__sideline = { state: function () { return S; }, sim: function () { return sim; }, speed: function (v) { SPEED = v; }, net: function () { return Net; }, say: function (side, txt) { var t = side === 'o' ? S.off : 1 - S.off, f = side === 'o' ? { plays: [null, null], style: 'motion' } : { style: 'man', match: [0, 1, 2, 3, 4], cover: 'drop', press: 'normal', pp: {}, help: 'help' }; var r = side === 'o' ? sayOffense(txt, f, names(t), names(1 - t)) : sayDefense(txt, f, names(t), names(1 - t)); return { r: r, f: f }; } };
+  window.__sideline = { state: function () { return S; }, sim: function () { return sim; }, speed: function (v) { SPEED = v; }, net: function () { return Net; }, asMe: function (n) { me = n; AS.w = ''; render(); }, as: function () { return AS; }, say: function (side, txt) { var t = side === 'o' ? S.off : 1 - S.off, f = side === 'o' ? { plays: [null, null], style: 'motion' } : { style: 'man', match: [0, 1, 2, 3, 4], cover: 'drop', press: 'normal', pp: {}, help: 'help' }; var r = side === 'o' ? sayOffense(txt, f, names(t), names(1 - t)) : sayDefense(txt, f, names(t), names(1 - t)); return { r: r, f: f }; } };
 
   var wake = null;
   function keepAwake() { try { if (navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function (w) { wake = w; w.addEventListener('release', function () { wake = null; }); }).catch(noop); } catch (e) { /* not supported */ } }
@@ -1748,5 +1843,6 @@
   setInterval(checkUpdate, 45000);
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') checkUpdate(); });
   netInit(); render(); requestAnimationFrame(loop);
+  var gq = (location.search.match(/[?&]g=([A-Za-z0-9]{4,8})/) || [])[1]; if (gq && Net.room && Net.room.raw) asOpen(gq, false); // a shared link opens straight into its game
   window.addEventListener('resize', function () { if (S.phase !== 'live') return; drawLive(); });
 })();
