@@ -1,6 +1,7 @@
 /* Sideline: player pool and playbook data.
    Player stats: 2026-27 NBA per-game numbers (basketball-reference.com, pulled Nov 26 2026).
-   Ratings are derived from those box-score stats by the formulas in rate() below. */
+   Ratings: NBA 2K27 attributes (nba2klab.com, pulled Nov 27 2026) blended with this season's stats. See rate() and finalize().
+   Badges: NBA 2K27 badge names and tier requirements, plus this game's own traits. See BDEF. Sources in research/sources.md. */
 (function (root) {
   'use strict';
   var BB = root.BB = root.BB || {};
@@ -192,8 +193,84 @@
     'Lauri Markkanen': 86, 'LaMelo Ball': 86, 'Amen Thompson': 86, 'Damian Lillard': 86, 'Franz Wagner': 85, 'Michael Porter Jr.': 85, 'Zion Williamson': 85, 'Dylan Harper': 85, 'Jaden McDaniels': 85, 'Tyler Herro': 85, 'Brandon Miller': 85,
     'Norman Powell': 84, 'Darius Garland': 84, 'Desmond Bane': 84, 'Keyonte George': 84, 'Nickeil Alexander-Walker': 83, 'Julius Randle': 83, 'Paul George': 82, 'Naz Reid': 82, 'Ajay Mitchell': 82, 'Zach LaVine': 82, 'RJ Barrett': 82,
     'Immanuel Quickley': 82, 'Ayo Dosunmu': 81 };
+  // NBA 2K27 attributes for every player in the pool (nba2klab.com, pulled Nov 27 2026). Order: height in, weight lb (0 = not listed), overall, then cls, lay, ddk, sdk, pc, ph, pf, df, hands, mid, thr, ft, siq, oc, pa, bh, swb, piq, vis, intd, perd, stl, blk, hiq, pp, dc, orb, drb, spd, agi, str, vert, sta, hus, intg
+  var K27K = 'cls lay ddk sdk pc ph pf df hands mid thr ft siq oc pa bh swb piq vis intd perd stl blk hiq pp dc orb drb spd agi str vert sta hus intg'.split(' ');
+  var K27 = {
+    'Tyler Herro': '77 205 85 98 93 60 30 40 37 42 82 95 90 85 92 70 95 79 85 74 84 67 46 69 38 51 65 60 50 32 60 79 78 59 72 85 70 50',
+    'Ty Jerome': '77 195 80 95 87 45 40 37 38 37 77 80 85 83 88 80 95 84 86 68 84 90 32 56 76 42 62 48 35 42 50 69 73 46 62 85 68 65',
+    'Darius Acuff Jr.': '75 190 75 84 84 80 30 37 28 32 54 85 83 83 81 50 60 84 87 90 84 82 30 61 47 34 57 54 50 32 44 92 92 55 84 89 75 40',
+    'Cooper Flagg': '81 205 87 89 91 80 65 70 70 74 84 90 87 71 82 80 95 70 76 75 70 70 81 83 49 63 82 75 80 44 67 83 85 70 77 90 90 70',
+    'Franz Wagner': '82 220 85 85 92 80 55 59 57 59 95 95 90 78 83 70 90 80 85 68 84 65 56 73 49 50 74 73 70 48 64 70 73 73 75 85 85 55',
+    'Pascal Siakam': '80 245 87 97 92 80 80 91 89 89 78 90 75 80 69 75 85 72 79 69 79 69 85 79 46 50 86 82 80 47 69 76 78 70 79 95 80 65',
+    'Alperen Şengün': '83 243 87 94 82 80 70 96 94 95 75 95 72 74 69 85 90 79 62 48 84 74 72 63 56 70 69 85 65 69 74 52 64 90 69 88 90 70',
+    'Julius Randle': '81 250 83 91 91 80 85 86 86 79 82 85 79 76 76 70 80 70 80 68 75 67 77 73 46 40 73 52 75 52 67 73 76 87 69 95 90 40',
+    'Zion Williamson': '78 284 85 83 86 93 85 85 90 80 85 95 79 67 72 70 85 65 78 74 72 66 59 55 46 56 64 70 40 61 59 84 81 92 97 83 95 40',
+    'Nickeil Alexander-Walker': '77 205 83 78 85 60 40 64 54 58 67 88 79 87 90 85 85 75 81 72 76 62 52 84 56 55 82 80 80 36 48 72 87 67 70 90 75 75',
+    'RJ Barrett': '78 214 82 89 88 80 45 79 52 55 80 85 79 79 71 70 80 79 83 82 84 65 58 81 40 50 79 74 75 41 67 84 84 76 82 95 80 55',
+    'Deni Avdija': '80 228 88 85 88 75 40 59 62 59 80 85 89 75 80 90 90 79 78 69 79 77 62 80 38 56 78 77 80 43 74 75 81 74 79 89 95 80',
+    'Kyrie Irving': '74 195 87 91 97 30 25 54 35 82 75 96 98 86 92 65 95 80 99 83 80 70 32 67 53 51 67 75 55 43 51 83 85 37 81 89 87 30',
+    'Damian Lillard': '74 200 86 82 86 85 25 42 30 38 62 98 95 93 93 55 90 84 89 83 84 75 31 69 46 37 72 77 60 33 54 83 87 63 89 97 95 45',
+    'Brandon Miller': '79 200 85 84 80 87 55 47 40 64 83 80 77 85 89 85 95 75 86 78 75 67 50 73 46 62 67 68 65 44 62 78 82 60 85 95 80 85',
+    'Norman Powell': '76 215 84 97 88 80 25 28 30 32 65 88 75 84 83 80 95 74 79 77 75 49 50 79 53 45 77 74 75 31 52 79 80 60 80 92 90 70',
+    'Darius Garland': '73 192 84 92 85 40 25 42 32 37 50 85 90 86 85 85 90 85 94 88 85 80 31 71 43 37 69 66 50 33 42 88 88 40 84 95 90 50',
+    'Keyonte George': '76 185 84 94 90 65 40 48 47 49 86 90 83 83 89 85 95 85 86 78 85 74 34 65 43 45 57 58 50 32 52 79 78 55 72 84 85 65',
+    'Paul George': '80 220 82 90 81 80 55 60 40 79 40 80 87 83 84 60 85 78 87 77 70 67 71 79 86 55 79 78 70 35 68 79 84 70 75 95 75 60',
+    'Zach LaVine': '77 200 82 97 87 94 60 59 59 66 80 80 79 85 88 70 85 70 88 81 67 42 47 61 37 42 57 38 40 27 47 84 82 49 97 98 65 50',
+    'Jaden McDaniels': '81 185 85 94 85 75 40 54 52 56 67 85 89 85 84 70 75 44 78 70 40 46 87 91 49 67 90 90 90 42 51 79 91 68 80 85 85 75',
+    'Bam Adebayo': '81 260 87 87 83 80 85 88 80 82 60 90 79 77 78 70 95 72 69 66 74 53 95 88 49 57 94 80 95 57 87 74 84 89 83 92 90 40',
+    'James Harden': '77 220 87 88 93 75 35 69 60 74 94 90 84 88 88 55 95 78 95 82 94 83 62 70 46 51 63 82 65 34 60 82 85 71 87 98 60 50',
+    'Jalen Johnson': '80 219 87 83 90 96 75 84 82 84 90 80 88 80 78 80 95 83 79 74 86 77 66 66 49 51 60 57 50 46 89 76 76 68 82 85 80 65',
+    'Michael Porter Jr.': '82 218 85 89 92 80 60 68 50 74 55 80 79 87 86 70 90 65 78 77 62 66 60 64 46 42 60 68 40 47 80 80 81 70 88 88 80 70',
+    'Yaxel Lendeborg': '81 240 73 77 77 85 55 60 59 60 42 95 74 78 82 60 50 70 76 70 70 66 70 70 60 60 67 64 50 54 60 75 70 66 81 90 80 50',
+    'Caleb Wilson': '82 215 77 82 82 88 75 60 61 61 66 75 67 65 71 60 50 59 67 76 65 37 77 75 67 79 75 70 65 67 75 85 82 61 92 88 85 50',
+    'Desmond Bane': '78 215 84 93 89 75 35 56 49 61 43 84 83 87 92 70 95 74 80 70 74 68 59 79 42 51 78 78 70 44 49 74 80 56 78 92 85 70',
+    'Dylan Harper': '77 215 85 93 93 86 30 45 34 48 79 95 93 79 74 90 90 75 90 86 78 72 52 70 69 52 70 68 65 43 55 88 89 61 83 90 85 55',
+    'Ayo Dosunmu': '76 200 81 89 89 75 25 42 35 50 64 80 90 86 87 65 80 72 79 73 79 70 38 69 43 47 68 69 65 38 52 76 78 59 75 85 75 55',
+    'Kyshawn George': '80 200 80 83 82 60 40 59 59 58 30 95 79 82 80 85 90 66 74 60 66 71 70 70 46 67 71 70 60 41 65 64 74 60 72 90 85 85',
+    'Lauri Markkanen': '85 240 86 96 80 80 80 86 84 84 85 95 72 87 90 90 90 67 65 42 75 39 66 65 41 52 66 64 65 55 66 63 65 70 62 85 85 70',
+    'Naz Reid': '81 264 82 97 83 80 80 82 82 70 60 94 73 83 73 50 80 59 58 49 65 48 78 54 53 73 80 65 75 49 78 50 54 87 75 88 95 50',
+    'Immanuel Quickley': '74 190 82 91 87 55 40 45 50 51 60 98 88 82 82 85 95 80 86 76 80 73 37 80 56 30 78 64 75 34 56 82 82 54 79 89 85 50',
+    'Duncan Robinson': '79 215 79 97 78 70 30 35 40 44 54 90 79 93 76 75 85 66 72 56 70 40 50 67 37 51 64 65 60 33 47 59 67 35 72 85 75 80',
+    'LaMelo Ball': '79 180 86 83 81 75 45 52 52 58 70 98 76 87 89 75 90 93 95 84 93 90 45 70 63 42 79 89 75 42 65 84 84 50 79 93 89 60',
+    'Ajay Mitchell': '76 190 82 95 94 70 35 38 30 37 79 80 79 79 87 80 90 74 82 79 75 69 43 77 70 52 78 75 75 40 52 83 80 53 65 87 75 60',
+    'Davion Mitchell': '72 210 77 98 80 40 25 30 30 30 30 95 74 82 67 55 65 75 86 82 75 74 44 86 46 37 85 82 85 33 45 82 88 60 70 90 95 55',
+    'Trae Young': '74 164 87 94 94 30 25 34 28 60 94 80 92 85 83 70 95 92 95 84 92 92 31 55 49 32 58 70 30 29 43 84 84 50 78 95 75 55',
+    'Evan Mobley': '83 215 87 88 76 85 85 84 83 83 70 85 77 75 63 70 75 69 60 66 74 64 93 82 40 85 95 85 90 65 82 72 79 74 81 90 90 60',
+    'Stephon Castle': '78 215 87 91 92 88 40 66 59 66 84 85 77 79 73 85 95 84 83 80 85 79 84 90 53 47 90 88 90 51 58 82 93 70 72 90 90 70',
+    'AJ Dybantsa': '81 212 79 83 80 85 60 60 60 60 69 95 82 74 77 65 65 66 79 80 66 49 59 70 55 40 64 54 55 57 60 87 83 69 92 87 80 65',
+    'Cameron Boozer': '81 250 79 85 75 70 65 78 78 78 68 95 81 79 79 70 65 68 67 64 75 57 64 59 47 41 66 65 55 70 79 68 63 77 71 89 90 65',
+    'Amen Thompson': '79 200 86 89 85 96 60 44 44 48 44 95 66 56 78 65 60 80 86 93 80 70 78 93 59 55 92 90 95 67 61 96 93 70 99 95 85 65',
+    'Saddiq Bey': '80 215 80 87 84 75 45 90 63 64 88 95 64 82 84 70 90 64 76 57 75 46 64 69 42 32 67 65 65 53 60 63 72 80 70 81 90 35',
+    'Jeremiah Fears': '75 190 79 73 82 70 40 40 40 41 79 85 75 79 79 75 75 78 88 90 79 69 38 62 63 53 62 60 60 39 56 93 88 49 75 85 85 70',
+    'Andrew Nembhard': '76 191 81 92 79 60 39 47 44 52 41 75 79 82 83 85 60 80 79 74 80 83 68 86 42 35 85 84 85 32 46 76 88 46 71 85 69 75',
+    'Darryn Peterson': '78 205 79 81 83 85 40 55 47 60 72 95 83 81 83 65 65 69 86 81 71 49 49 73 69 42 72 71 60 39 49 84 84 57 84 90 90 65',
+    'Luka Dončić': '80 0 96 98 97 75 65 87 85 85 98 98 94 92 78 88 98 95 95 83 95 95 58 59 66 53 60 57 45 36 82 84 77 72 79 90 98 85',
+    'Shai Gilgeous-Alexander': '78 0 97 97 98 75 40 86 76 90 98 98 99 82 88 80 98 97 96 87 98 85 69 86 70 62 89 95 85 34 54 88 86 66 85 98 90 60',
+    'Victor Wembanyama': '88 0 97 92 86 85 95 87 89 89 97 98 84 80 83 95 98 72 76 64 84 65 97 80 59 99 97 84 98 73 98 66 69 70 72 97 98 95',
+    'Giannis Antetokounmpo': '83 0 96 96 98 91 85 91 79 74 97 95 59 62 65 90 98 84 87 80 95 85 90 87 70 62 92 88 95 80 90 89 86 94 85 98 95 65',
+    'Stephen Curry': '74 0 93 98 95 36 25 35 35 52 78 98 94 99 93 75 98 89 97 83 90 74 30 69 49 51 70 68 65 32 53 83 84 48 73 98 85 65',
+    'Jayson Tatum': '80 0 93 90 95 89 50 88 79 86 88 98 91 88 82 90 95 78 86 79 84 72 81 85 63 37 89 84 85 34 89 82 88 71 83 95 98 80',
+    'Jalen Brunson': '74 0 96 95 98 35 40 72 55 84 98 98 97 88 84 95 98 96 96 84 98 75 55 73 38 32 72 70 75 32 48 84 84 60 75 98 95 90',
+    'Tyrese Maxey': '74 0 92 84 96 70 25 47 45 60 89 98 87 88 90 80 98 80 92 96 87 74 54 79 73 60 69 68 65 29 52 96 90 44 80 98 98 75',
+    'Jamal Murray': '76 0 89 89 90 82 30 74 38 46 75 84 90 88 89 90 90 84 89 79 85 76 35 77 40 50 74 70 70 32 55 80 80 54 80 95 85 90',
+    'Anthony Davis': '82 0 90 91 81 85 90 85 85 89 87 85 80 70 73 70 85 60 75 67 72 60 90 80 53 82 90 88 90 74 87 79 78 92 86 87 85 60',
+    'Donovan Mitchell': '74 0 93 98 97 92 50 44 37 77 90 98 89 88 86 70 95 84 93 91 84 73 68 75 66 45 79 79 75 36 56 95 90 60 97 96 95 50',
+    'Scottie Barnes': '80 0 88 97 89 80 80 87 70 72 86 95 87 77 81 70 90 82 79 77 88 80 90 91 63 81 91 90 95 57 73 82 82 78 92 88 95 55',
+    'Austin Reaves': '77 0 88 97 94 70 25 32 31 32 89 85 69 85 87 95 90 85 86 78 85 72 35 66 43 51 64 60 55 36 59 83 80 50 81 94 80 95',
+    'Nikola Jokić': '83 0 97 99 94 75 75 98 94 95 98 90 98 85 83 85 98 93 76 60 98 99 83 61 56 61 83 82 80 73 97 63 62 96 63 97 80 65',
+    'Devin Booker': '77 0 91 96 95 75 30 84 74 79 87 98 94 86 87 85 95 80 92 83 80 75 58 75 40 45 74 74 65 36 52 83 80 64 79 95 95 60',
+    'Cade Cunningham': '78 0 94 94 94 75 40 85 70 84 95 98 97 86 81 80 98 92 90 83 95 94 63 83 63 65 82 76 80 38 63 83 84 67 80 94 95 70',
+    'Karl-Anthony Towns': '84 0 93 93 82 75 85 89 92 92 80 98 78 82 86 98 85 75 65 66 79 70 71 50 42 57 79 55 65 76 93 76 76 90 70 98 90 98',
+    'Kevin Durant': '83 0 93 98 96 85 60 86 74 89 85 98 97 92 88 80 95 78 92 77 88 70 70 77 38 62 75 75 75 33 62 78 78 63 77 94 90 40',
+    'Jaylen Brown': '78 0 91 94 97 94 50 85 72 80 89 98 90 82 80 75 95 78 86 76 84 73 84 90 43 51 86 87 85 43 70 79 88 72 84 95 95 50',
+    'LeBron James': '81 0 91 94 97 85 80 84 82 88 80 98 83 76 74 95 80 90 84 85 97 81 74 74 46 57 70 70 60 38 69 87 84 89 89 88 70 70',
+    'Joel Embiid': '84 0 91 94 89 80 85 95 96 96 97 90 91 79 85 70 95 74 57 57 82 71 86 68 36 73 83 64 80 62 90 60 59 96 60 70 65 60',
+    'OG Anunoby': '79 0 88 81 81 85 60 36 38 37 69 90 76 85 82 90 90 58 72 71 52 37 89 94 73 62 94 92 95 46 59 81 91 80 85 85 85 70'
+  };
+  function k27(name) { var s0 = K27[name]; if (!s0) return null; var a = s0.split(' ').map(Number), o = { ht: a[0], wt: a[1], ovr: a[2] }; K27K.forEach(function (k, i) { o[k] = a[3 + i]; }); return o; }
   function rate(s, name) {
-    var ph = PHYS[name] || PDEF[s.pos], size = Math.max(0.5, Math.min(6, 1 + (ph[0] - 74) / 2.6)), adj = ADJ[name] || [0, 0, 0, 0], c = A27[name], p = A26[name], sh = S26[name];
+    var ph = (PHYS[name] || PDEF[s.pos]).slice(), kk = k27(name); if (kk) { ph[0] = kk.ht; if (kk.wt) ph[1] = kk.wt; ph[2] = kk.vert; } // 2K27 listed height, weight and vertical where it has them
+    var size = Math.max(0.5, Math.min(6, 1 + (ph[0] - 75) / 2.6)), adj = ADJ[name] || [0, 0, 0, 0], c = A27[name], p = A26[name], sh = S26[name];
     var wc = c ? c.mp : 1, wp = p ? p.mp * 0.35 : 0;
     function v(k) { var cur = c ? c[k] : 0; return p ? (cur * wc + p[k] * wp) / (wc + wp) : cur; }
     var guard = s.pos === 'PG' ? 8 : s.pos === 'SG' ? 5 : s.pos === 'SF' ? 2 : 0, quick = size <= 3 ? 6 : size === 4 ? 2 : -4;
@@ -231,14 +308,132 @@
       var midZ = 44 + (midP - 0.42) * 110 + (z.s2 + z.s3) * 45 + (ft - 0.75) * 70 + usg * 0.35 + (size <= 3 ? 2 : 0);
       r.ins = cl(r.ins * 0.45 + insZ * 0.55); r.mid = cl(r.mid * 0.5 + midZ * 0.5);
     }
-    r.ply = Math.round(r.hnd * 0.5 + r.pas * 0.5);
-    var raw = r.ins * 0.14 + r.mid * 0.08 + r.three * 0.13 + r.hnd * 0.10 + r.pas * 0.08 + r.oiq * 0.08 + r.pd * 0.09 + r.rim * 0.07 + r.stl * 0.03 + r.blk * 0.03 + r.diq * 0.06 + r.reb * 0.06 + r.spd * 0.03 + r.str * 0.02;
-    r.ovr = cl(0.5 * (55 + 1.85 * (raw - 60)) + 0.5 * (77 + bpm * 2.1)); // half skills, half box plus-minus so impact players rate like it
-    // Anchor to NBA 2K27: the overall is mostly 2K's number, nudged by this season's play. Skill ratings move with it so the game matches the number.
-    r.own = r.ovr; var k2 = K2[name], est = { 'AJ Dybantsa': 79, 'Cameron Boozer': 79, 'Darryn Peterson': 78 }[name], tgt = k2 ? Math.round(k2 * 0.7 + r.ovr * 0.3) : Math.max(est || 74, Math.min(r.ovr, 80)), dlt = tgt - r.ovr; // not on 2K's Top 100 means 80 or lower; the three top rookies are my estimate
-    if (dlt) { ['ins', 'mid', 'three', 'hnd', 'pas', 'pd', 'rim', 'oiq', 'diq'].forEach(function (key) { r[key] = cl(r[key] + dlt * 0.6); }); r.ply = Math.round(r.hnd * 0.5 + r.pas * 0.5); }
-    r.ovr = tgt; r.k2 = k2 || 0;
+    r.bpm = bpm; r.ppm = s.pts / Math.max(1, s.mp);
     return r;
+  }
+
+  // ---------- badges ----------
+  // Tier 1 Bronze, 2 Silver, 3 Gold, 4 Hall of Fame. The 2K badges use NBA 2K27's own names and its published tier requirements
+  // (the MyPLAYER builder thresholds), applied to each player's 2K27 attributes. 2K does not publish badge lists for real players.
+  // The Sideline traits are this game's own: situations 2K has no badge for. Their rules are written out below.
+  // [id, name, group, what it does in this game, rule]. Rule: {a: [[attr, bronze, silver, gold, hof], ...] all must pass, o: [...] any may pass, min/max: height in inches}
+  var BDEF = [
+    ['ded', 'Deadeye', 'Shooting', 'A hand in his face takes less off his jump shot.', { o: [['mid', 65, 85, 92, 99], ['thr', 65, 85, 92, 99]] }],
+    ['lim', 'Limitless Range', 'Shooting', 'Deep threes cost him far less.', { a: [['thr', 83, 89, 93, 99]] }],
+    ['mini', 'Mini Marksman', 'Shooting', 'Shoots over taller defenders.', { o: [['mid', 60, 79, 94, 99], ['thr', 60, 79, 94, 99]], max: 76 }],
+    ['saf', 'Set and Fire', 'Shooting', 'Better on catch and shoot threes.', { a: [['thr', 60, 78, 89, 97]] }],
+    ['arc', 'Arc Cadence', 'Shooting', 'Better on threes off the dribble.', { a: [['thr', 70, 86, 91, 98]], max: 83 }],
+    ['stm', 'Static Middy', 'Shooting', 'Better on standstill mid-range shots.', { a: [['mid', 55, 75, 85, 95]] }],
+    ['smo', 'Smooth Operator', 'Shooting', 'Better on mid-range pull-ups.', { a: [['mid', 70, 87, 93, 99]] }],
+    ['pfp', 'Post Fade Phenom', 'Shooting', 'Better on jumpers out of the post.', { a: [['mid', 60, 71, 84, 91], ['pc', 55, 74, 84, 93]] }],
+    ['flo', 'Float Game', 'Finishing', 'Better on floaters and short shots in the paint.', { a: [['fin', 72, 84, 91, 96]] }],
+    ['lmx', 'Layup Mixmaster', 'Finishing', 'Finishes around a rim protector.', { a: [['lay', 70, 83, 90, 99]], max: 84 }],
+    ['pai', 'Paint Prodigy', 'Finishing', 'Quick scores on the catch in the paint.', { a: [['fin', 70, 85, 90, 96]], min: 75 }],
+    ['phy', 'Physical Finisher', 'Finishing', 'Finishes through contact and draws more fouls.', { a: [['lay', 60, 80, 90, 96], ['str', 60, 70, 80, 90]] }],
+    ['pph', 'Post Powerhouse', 'Finishing', 'Backs his man down more often.', { a: [['pc', 60, 75, 85, 95], ['str', 65, 79, 86, 95]], min: 77 }],
+    ['hok', 'Hook Specialist', 'Finishing', 'Better on shots out of a post-up.', { a: [['cls', 60, 75, 87, 94], ['pc', 55, 65, 80, 90]] }],
+    ['pos', 'Posterizer', 'Finishing', 'Finishes on top of a defender off the drive and is harder to block.', { a: [['ddk', 73, 87, 93, 99], ['vert', 65, 75, 80, 90]] }],
+    ['ris', 'Rise Up', 'Finishing', 'Goes straight up at the rim on the catch.', { a: [['sdk', 60, 81, 90, 99], ['vert', 55, 62, 66, 70]], min: 77 }],
+    ['aer', 'Aerial Wizard', 'Finishing', 'Better on putbacks and passes caught on the move at the rim.', { o: [['ddk', 60, 70, 80, 94], ['sdk', 60, 70, 80, 93]] }],
+    ['ank', 'Ankle Assassin', 'Playmaking', 'Beats his man off the dribble more often.', { a: [['bh', 75, 86, 93, 96]], max: 82 }],
+    ['dim', 'Dimer', 'Playmaking', 'An open teammate shoots better off his pass.', { a: [['pa', 50, 70, 86, 95]] }],
+    ['vv', 'Versatile Visionary', 'Playmaking', 'Threads passes through tight lanes.', { a: [['pa', 65, 80, 90, 99]] }],
+    ['bail', 'Bail Out', 'Playmaking', 'Passes out of a double team safely.', { a: [['pa', 85, 93, 96, 99]] }],
+    ['unp', 'Unpluckable', 'Playmaking', 'Much harder to strip on the drive.', { o: [['pc', 65, 86, 96, 999], ['bh', 65, 80, 92, 97]] }],
+    ['shd', 'Strong Handle', 'Playmaking', 'Keeps his dribble against pressure and traps.', { a: [['bh', 60, 67, 73, 78], ['str', 75, 82, 89, 95]], max: 83 }],
+    ['lit', 'Lightning Launch', 'Playmaking', 'Explosive first step: a beaten defender stays beaten longer.', { a: [['swb', 68, 75, 86, 91]], max: 83 }],
+    ['cha', 'Challenger', 'Defense', 'His contests take more off a jump shot.', { a: [['perd', 71, 82, 92, 98]], max: 83 }],
+    ['sea', 'Seatbelt', 'Defense', 'Stays in front of the drive.', { a: [['perd', 75, 85, 91, 99], ['agi', 70, 77, 80, 86]], max: 81 }],
+    ['abr', 'Ankle Braces', 'Defense', 'Cancels dribble move badges and recovers faster when beaten.', { a: [['perd', 60, 86, 93, 95], ['agi', 65, 82, 89, 92]], max: 81 }],
+    ['glv', 'Glove', 'Defense', 'Strips drivers more often.', { a: [['stl', 70, 83, 93, 99]], max: 84 }],
+    ['int', 'Interceptor', 'Defense', 'Picks off more passes in his lane.', { a: [['stl', 60, 77, 90, 97]] }],
+    ['pkd', 'Pick Dodger', 'Defense', 'Gets through ball screens faster.', { a: [['perd', 73, 83, 90, 97], ['agi', 71, 81, 88, 91]], max: 82 }],
+    ['obp', 'Off-Ball Pest', 'Defense', 'Fights through off-ball screens to stay with a shooter.', { o: [['intd', 60, 76, 85, 93], ['perd', 55, 68, 80, 89]] }],
+    ['pat', 'Paint Patroller', 'Defense', 'Bigger contests and more blocks at the rim.', { a: [['intd', 60, 71, 77, 84], ['blk', 70, 84, 93, 99]], min: 77 }],
+    ['wal', 'Wall Up', 'Defense', 'Goes straight up: absorbs contact without fouling.', { a: [['intd', 80, 85, 95, 99], ['str', 75, 80, 90, 92]], min: 77 }],
+    ['pld', 'Post Lockdown', 'Defense', 'Holds his ground against post-ups.', { a: [['intd', 65, 82, 88, 93], ['str', 65, 74, 80, 88]], min: 77 }],
+    ['imm', 'Immovable Enforcer', 'Defense', 'A stronger driver gets no edge on him.', { a: [['perd', 62, 72, 84, 91], ['str', 71, 82, 85, 92]] }],
+    ['hfd', 'High-Flying Denier', 'Defense', 'Still gets to the shot when he is trailing the play.', { a: [['blk', 68, 78, 88, 92], ['vert', 60, 74, 80, 83]], min: 75 }],
+    ['box', 'Boxout Boss', 'Rebounding', 'Wins more defensive rebounds.', { a: [['drb', 65, 75, 90, 98], ['str', 60, 76, 88, 94]], min: 75 }],
+    ['clo', 'Possession Closer', 'Rebounding', 'Ends the possession: secures the defensive board.', { a: [['drb', 67, 87, 95, 99], ['vert', 60, 65, 67, 70]] }],
+    ['cra', 'Crasher', 'Rebounding', 'Wins more offensive rebounds.', { a: [['orb', 60, 80, 93, 99], ['vert', 60, 65, 67, 70]] }],
+    ['brk', 'Breaker', 'Rebounding', 'Fights through boxouts on the offensive glass.', { a: [['orb', 65, 82, 92, 98], ['str', 70, 79, 90, 96]], min: 75 }],
+    ['bwl', 'Brick Wall', 'Physicals', 'His screens hold the defender longer.', { a: [['str', 75, 83, 95, 99]], min: 77 }],
+    ['sli', 'Slippery Off-Ball', 'Physicals', 'Comes off off-ball screens with more room.', { a: [['spd', 57, 73, 85, 94], ['agi', 57, 65, 77, 90]], max: 81 }],
+    // Sideline traits
+    ['clu', 'Clutch', 'Traits', 'Shoots better late in a close game and when the shot clock is dying.', null],
+    ['mic', 'Microwave', 'Traits', 'Heats up after a single make.', null],
+    ['cor', 'Corner Specialist', 'Traits', 'Better on corner threes.', null],
+    ['gia', 'Giant Slayer', 'Traits', 'A small guard who finishes at the rim over much taller defenders.', null],
+    ['mis', 'Mismatch Hunter', 'Traits', 'Punishes a defender who is a different size: shoots over small ones, drives past big ones.', null],
+    ['pnr', 'Pick and Roll Maestro', 'Traits', 'Better coming off a ball screen, as a scorer and a driver.', null],
+    ['zon', 'Zone Buster', 'Traits', 'Shoots well against a zone.', null],
+    ['flg', 'Floor General', 'Traits', 'Every teammate shoots a little better with him on the floor.', null],
+    ['ace', 'Ace Stopper', 'Traits', 'Guards the other team\'s best player better than anyone else.', null]
+  ];
+  BB.BADGES = BDEF.map(function (b) { return { id: b[0], name: b[1], group: b[2], desc: b[3], own: !b[4] }; });
+  BB.BADGE = {}; BB.BADGES.forEach(function (b, i) { b.i = i; BB.BADGE[b.id] = b; });
+  BB.TIERS = ['', 'Bronze', 'Silver', 'Gold', 'Hall of Fame'];
+  function tier(v, t) { return v >= t[3] ? 4 : v >= t[2] ? 3 : v >= t[1] ? 2 : v >= t[0] ? 1 : 0; }
+  // Clutch: the last four Clutch Player of the Year results. Gilgeous-Alexander won in 2026, Murray was second, Brunson won in 2025, Curry in 2024.
+  var CLUTCH = { 'Shai Gilgeous-Alexander': 4, 'Jalen Brunson': 3, 'Jamal Murray': 3, 'Stephen Curry': 3 };
+  function badges(p) {
+    var k = p.k, r = p.r, out = {}; if (!k) return out;
+    k.fin = (k.cls + k.lay) / 2; // 2K rates close shot near 95 for most of the league, so the two paint badges use the average of close shot and layup
+    BDEF.forEach(function (b) {
+      var rule = b[4]; if (!rule) return;
+      if ((rule.max && k.ht > rule.max) || (rule.min && k.ht < rule.min)) return;
+      var t = 0;
+      if (rule.a) { t = 4; rule.a.forEach(function (q) { t = Math.min(t, tier(k[q[0]], q.slice(1))); }); }
+      if (rule.o) rule.o.forEach(function (q) { t = Math.max(t, tier(k[q[0]], q.slice(1))); });
+      if (t) out[b[0]] = t;
+    });
+    function set(id, t) { if (t > 0) out[id] = t; }
+    set('clu', Math.max(CLUTCH[p.name] || 0, tier(r.cmp, [84, 88, 92, 97])));          // composure rating, or the award results above
+    set('mic', k.thr >= 80 ? tier(r.ppm, [0.62, 0.72, 0.82, 0.95]) : 0);                // points per minute this season, for a real shooter
+    set('cor', k.bh < 82 ? tier(k.thr, [80, 85, 89, 93]) : 0);                          // off-ball shooters. An estimate: no corner split in the data
+    set('gia', k.ht <= 76 ? tier(k.lay, [85, 90, 94, 97]) : 0);
+    set('mis', k.oc >= 90 && Math.max(k.bh, k.pc) >= 84 ? tier(k.ovr, [85, 88, 92, 96]) : 0);
+    set('pnr', tier((k.bh + k.piq + k.vis) / 3, [78, 84, 89, 94]));
+    set('zon', tier((k.thr + k.vis) / 2, [78, 84, 89, 94]));
+    set('flg', tier((k.piq + k.vis) / 2, [82, 88, 93, 97]));
+    set('ace', Math.min(tier(k.perd, [84, 88, 91, 94]), tier(k.dc, [80, 85, 90, 95])));
+    return out;
+  }
+  BB.badgeList = function (p) { // strongest first
+    var b = p.r.b || {}; return Object.keys(b).map(function (id) { return { id: id, t: b[id], d: BB.BADGE[id] }; }).sort(function (x, y) { return y.t - x.t || (y.d.own ? 1 : 0) - (x.d.own ? 1 : 0) || x.d.i - y.d.i; });
+  };
+
+  // The 2K27 attribute each game rating leans on. Each is rescaled to the spread the game engine was tuned for, then blended 65 percent 2K, 35 percent this season's numbers.
+  var FROM2K = {
+    ins: function (k) { return k.lay * 0.32 + k.cls * 0.2 + Math.max(k.ddk, k.sdk) * 0.18 + k.df * 0.15 + Math.max(k.pc, k.ph) * 0.15; },
+    mid: function (k) { return k.mid; }, three: function (k) { return k.thr; },
+    hnd: function (k) { return k.bh * 0.7 + k.swb * 0.3; }, pas: function (k) { return k.pa * 0.5 + k.piq * 0.25 + k.vis * 0.25; },
+    pd: function (k) { return k.perd * 0.85 + k.dc * 0.15; }, rim: function (k) { return k.intd * 0.6 + k.blk * 0.25 + k.hiq * 0.15; },
+    stl: function (k) { return k.stl * 0.75 + k.pp * 0.25; }, blk: function (k) { return k.blk; }, reb: function (k) { return k.orb * 0.35 + k.drb * 0.65; },
+    spd: function (k) { return k.spd * 0.6 + k.agi * 0.4; }, str: function (k) { return k.str; },
+    oiq: function (k) { return k.siq * 0.4 + k.piq * 0.3 + k.oc * 0.3; }, diq: function (k) { return k.hiq * 0.45 + k.pp * 0.3 + k.dc * 0.25; }
+  };
+  function finalize(list) {
+    var have = list.filter(function (p) { return p.k; });
+    Object.keys(FROM2K).forEach(function (key) {
+      var a = have.map(function (p) { return FROM2K[key](p.k); }), b = have.map(function (p) { return p.r[key]; });
+      function ms(v) { var m = v.reduce(function (x, y) { return x + y; }, 0) / v.length, sd = Math.sqrt(v.reduce(function (x, y) { return x + (y - m) * (y - m); }, 0) / v.length) || 1; return [m, sd]; }
+      var A = ms(a), Bq = ms(b);
+      have.forEach(function (p, i) { p.r[key] = cl(0.65 * (Bq[0] + (a[i] - A[0]) / A[1] * Bq[1]) + 0.35 * b[i]); });
+    });
+    list.forEach(function (p) {
+      var r = p.r, k = p.k;
+      if (k) { r.ftr = cl(k.ft * 0.5 + r.ftr * 0.5); r.cmp = cl(r.cmp * 0.7 + (k.oc * 0.5 + k.siq * 0.5) * 0.3); }
+      r.ply = Math.round(r.hnd * 0.5 + r.pas * 0.5);
+      var raw = r.ins * 0.14 + r.mid * 0.08 + r.three * 0.13 + r.hnd * 0.10 + r.pas * 0.08 + r.oiq * 0.08 + r.pd * 0.09 + r.rim * 0.07 + r.stl * 0.03 + r.blk * 0.03 + r.diq * 0.06 + r.reb * 0.06 + r.spd * 0.03 + r.str * 0.02;
+      r.own = cl(0.5 * (55 + 1.85 * (raw - 60)) + 0.5 * (77 + r.bpm * 2.1)); // what this season's play alone says
+      // Overall: 70 percent NBA 2K27's number, 30 percent this season. Skill ratings move part of the way with it so the game matches the number.
+      var tgt = k ? Math.round(k.ovr * 0.7 + r.own * 0.3) : Math.max(74, Math.min(r.own, 80)), dlt = tgt - r.own;
+      if (dlt) { ['ins', 'mid', 'three', 'hnd', 'pas', 'pd', 'rim', 'oiq', 'diq'].forEach(function (key) { r[key] = cl(r[key] + dlt * 0.4); }); r.ply = Math.round(r.hnd * 0.5 + r.pas * 0.5); }
+      r.ovr = tgt; r.k2 = k ? k.ovr : 0; delete r.bpm;
+      r.b = badges(p);
+    });
   }
 
   // attribute groups for display, 2K style
@@ -258,8 +453,9 @@
     };
     var parts = f[0].split(' ');
     var last = parts.slice(1).join(' ').replace(/ (Jr\.|Sr\.|II|III)$/, '');
-    return { id: i, name: f[0], last: last, team: f[1], pos: f[2], s: s, r: rate(s, f[0]) };
+    return { id: i, name: f[0], last: last, team: f[1], pos: f[2], s: s, r: rate(s, f[0]), k: k27(f[0]) };
   });
+  finalize(BB.players);
   // disambiguate shared last names for court labels
   (function () {
     var seen = {};

@@ -515,16 +515,33 @@
   }
 
   // ---------- draft ----------
-  var SORTS = [['ovr', 'Overall'], ['ins', 'Close'], ['three', '3PT'], ['hnd', 'Handle'], ['pas', 'Passing'], ['pd', 'Perimeter D'], ['rim', 'Interior D'], ['reb', 'Rebound'], ['spd', 'Speed'], ['oiq', 'Off IQ']];
+  var SORTS = [['ovr', 'Overall'], ['ins', 'Close'], ['three', '3PT'], ['hnd', 'Handle'], ['pas', 'Passing'], ['pd', 'Perimeter D'], ['rim', 'Interior D'], ['reb', 'Rebound'], ['spd', 'Speed'], ['oiq', 'Off IQ'], ['bdg', 'Badges']];
   var PILLS = [['ins', 'Close'], ['mid', 'Mid'], ['three', '3PT'], ['hnd', 'Handle'], ['pas', 'Pass'], ['pd', 'Per D'], ['rim', 'Int D'], ['spd', 'Speed']];
+  var TIERC = ['', 'bz', 'sv', 'gd', 'hf'];
+  function badgeChips(p, n) { // his strongest badges, as small chips
+    var L = BB.badgeList(p), top = L.filter(function (x) { return x.t >= 3; }).slice(0, n);
+    if (top.length < n) top = L.slice(0, n);
+    return h('.bdgs', top.map(function (x) { return h('span.bdg.' + TIERC[x.t], { text: x.d.name, title: BB.TIERS[x.t] + ': ' + x.d.desc }); }), L.length > top.length ? h('span.bdg.more', { text: '+' + (L.length - top.length) }) : null);
+  }
+  function badgeSheet(p) { // every badge he has, grouped, with what it does
+    var L = BB.badgeList(p), groups = ['Traits', 'Shooting', 'Finishing', 'Playmaking', 'Defense', 'Rebounding', 'Physicals'], cnt = [0, 0, 0, 0, 0];
+    L.forEach(function (x) { cnt[x.t]++; });
+    return h('.bsheet', h('h3', { text: 'Badges: ' + [4, 3, 2, 1].filter(function (t) { return cnt[t]; }).map(function (t) { return cnt[t] + ' ' + BB.TIERS[t]; }).join(', ') }),
+      groups.map(function (g) {
+        var G = L.filter(function (x) { return x.d.group === g && (x.t >= 2 || ui.ball); }); if (!G.length) return null;
+        return h('div', h('h4', { text: g === 'Traits' ? 'Sideline traits' : g }), G.map(function (x) { return h('.brow', h('span.bdg.' + TIERC[x.t], { text: x.d.name }), h('i', { text: BB.TIERS[x.t] }), h('p', { text: x.d.desc })); }));
+      }),
+      cnt[1] && !ui.ball ? h('button.btn.small', { text: 'Show the ' + cnt[1] + ' Bronze badges too', onclick: function () { ui.ball = true; render(); } }) : null);
+  }
   function attrCard(p) {
-    return h('.attrs', BB.ATTRS.map(function (g) {
+    return h('.attrs', badgeSheet(p), BB.ATTRS.map(function (g) {
       return h('.agroup', h('h3', { text: g[0] }), g[1].map(function (a) { var v = p.r[a[0]]; return h('.arow', h('span', { text: a[1] }), h('.abar', h('i', { style: 'width:' + Math.max(4, (v - 40) / 59 * 100) + '%' })), h('b' + (v >= 85 ? '.hot' : v < 60 ? '.cold' : ''), { text: v })); }));
     }));
   }
+  function bScore(p) { var n = 0, b = p.r.b || {}; for (var id in b) n += b[id] >= 4 ? 5 : b[id] === 3 ? 2 : b[id] === 2 ? 0.5 : 0; return n; }
   function viewDraft() {
     var myTurn = S.mode === 'local' ? (S.ai == null || S.turn !== S.ai) : S.turn === me, who = S.turn;
-    var list = BB.players.filter(function (p) { return !taken(p.id) && (!ui.posf || ui.posf.indexOf(p.pos) >= 0); }).sort(function (a, b) { return b.r[ui.sort] - a.r[ui.sort] || b.r.ovr - a.r.ovr; });
+    var list = BB.players.filter(function (p) { return !taken(p.id) && (!ui.posf || ui.posf.indexOf(p.pos) >= 0); }).sort(function (a, b) { return (ui.sort === 'bdg' ? bScore(b) - bScore(a) : b.r[ui.sort] - a.r[ui.sort]) || b.r.ovr - a.r.ovr; });
     function roster(t) {
       return h('.roster' + (t ? '.t1' : '') + (S.turn === t ? '.turn' : ''), h('span.tag.t' + t, { text: TEAM[t] + (S.mode !== 'local' && t === me ? ' (you)' : '') }),
         h('ol', S.picks[t].map(function (id) { return h('li', { text: P(id).tag + ' \u00b7 ' + P(id).pos + ' \u00b7 ' + P(id).r.ovr }); })));
@@ -539,7 +556,8 @@
         return h('.prow',
           h('button.pname', { 'aria-expanded': open ? 'true' : 'false', onclick: function () { ui.open = open ? null : p.id; render(); } }, h('.nm', { text: p.name }), h('.sub', { text: p.team + ' \u00b7 ' + p.pos + ' \u00b7 ' + ftin(p.r.hgt) + ' ' + p.r.wgt + ' lb \u00b7 ' + p.s.pts.toFixed(1) + ' pts \u00b7 ' + p.s.trb.toFixed(1) + ' reb \u00b7 ' + p.s.ast.toFixed(1) + ' ast' })),
           h('.row', h('span.ovr', { text: p.r.ovr }), h('button.btn.small.' + (who ? 'red' : 'blue'), { text: 'Draft', disabled: !myTurn, onclick: function () { sendPick(S.mode === 'local' ? who : me, p.id); } })),
-          open ? attrCard(p) : h('.rt', PILLS.map(function (r) { var v = p.r[r[0]]; return h('span' + (v >= 85 ? '.hot' : v < 60 ? '.cold' : ''), { text: r[1] + ' ' + v }); })));
+          open ? attrCard(p) : h('.rt', PILLS.map(function (r) { var v = p.r[r[0]]; return h('span' + (v >= 85 ? '.hot' : v < 60 ? '.cold' : ''), { text: r[1] + ' ' + v }); })),
+          open ? null : badgeChips(p, 4));
       })));
   }
 
@@ -688,6 +706,15 @@
       h('p.note', { text: (under ? 'Faint lines: ' + under.p.name + ', a play they have run. ' : '') + (f.spots.length ? f.spots.length + ' of 4 markers placed. Tap a marker to remove it. Each one thins your cover everywhere else a little.' : 'Up to 4 markers. Each one thins your cover everywhere else a little, so mark only what you expect.') }));
   }
   function ftin(inches) { return Math.floor(inches / 12) + '\u2032' + (inches % 12) + '\u2033'; }
+  function badgeCard(t, mine) { // the badges on the floor: yours with the ball, theirs when you defend
+    var L = names(t), key = 'bc' + (mine ? 1 : 0);
+    return h('.card.bcard', h('h3', { text: mine ? 'Your badges' : 'Their badges' }),
+      h('p.note', { text: mine ? 'Build the play around these. A badge only fires in its own situation.' : 'What each of them does best. Take those situations away.' }),
+      L.map(function (p, i) {
+        var open = ui[key] === i;
+        return h('div', h('button.bline', { 'aria-expanded': open ? 'true' : 'false', onclick: function () { ui[key] = open ? null : i; render(); } }, h('b', { text: (i + 1) + ' ' + p.tag }), badgeChips(p, 3)), open ? badgeSheet(p) : null);
+      }));
+  }
   function tipCard(f, t, onOff) { // one concrete idea from the matchups, applied with a tap
     var mine = names(t), opp = names(1 - t), tip = null, best = 0;
     if (onOff) {
@@ -968,6 +995,7 @@
       scoutCard(t, true),
       playReport(t),
       tipCard(f, t, true),
+      badgeCard(t, true),
       playBoard(),
       sayCard(f, 'say', 'e.g. run horns, get Curry threes, be patient, Jokic and Tatum crash', function (txt) { return sayOffense(txt, f, pl, names(1 - t)); }),
       quickOff(f, t),
@@ -1073,6 +1101,7 @@
           }));
       })(),
       tipCard(f, t, false),
+      badgeCard(1 - t, false),
       defBoard(f, t),
       quickDef(f),
       tendCard(t, false),
@@ -1609,6 +1638,7 @@
     updateLive();
   }
 
+  E.badgeName = function (id) { return BB.BADGE[id] ? BB.BADGE[id].name : id; };
   var TAGS = { 1: 'Screened', 2: 'Switch', 3: 'Beat his man', 4: 'Cut off', 5: 'Double', 6: 'Open', 7: 'Denied', 8: 'Trap', 9: 'Cutting', 10: 'Crowding', 11: 'Shading', 12: 'Gambling', 13: 'Screen', 14: 'Heating up', 15: 'Mismatch' };
   function livePlays() { // the plays this phone is allowed to see drawn on the court
     if (auth && S.ai != null && S.off === S.ai) return null; // the computer's play stays hidden, like a real opponent's
@@ -1646,10 +1676,10 @@
   function drawTags(ctx, v, X, Y, r, dpr) {
     ctx.font = '700 ' + Math.round(11 * dpr) + 'px "Barlow Condensed", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (var k = 44; k < 53; k += 3) {
-      var c = v[k], txt = TAGS[c]; if (!txt) continue;
+      var c = v[k], txt = c >= 30 ? (BB.BADGES[c - 30] || {}).name : TAGS[c]; if (!txt) continue;
       var i = v[k + 1], age = v[k + 2] / 10, al = Math.max(0, Math.min(1, (1.4 - age) / 0.4)), px = X(v[5 + i * 3] / 10), py = Y(v[6 + i * 3] / 10) - r - 11 * dpr - age * 5 * dpr, w = ctx.measureText(txt).width / 2 + 6 * dpr, hh = 8.5 * dpr;
       var good = c === 1 || c === 3 || c === 6 || c === 9 || c === 13 || c === 14 || c === 15;
-      ctx.globalAlpha = al; ctx.fillStyle = good ? '#1f9d55' : '#18202e'; ctx.beginPath();
+      ctx.globalAlpha = al; ctx.fillStyle = c >= 30 ? '#b8860b' : good ? '#1f9d55' : '#18202e'; ctx.beginPath();
       if (ctx.roundRect) ctx.roundRect(px - w, py - hh, w * 2, hh * 2, hh); else ctx.rect(px - w, py - hh, w * 2, hh * 2);
       ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(txt.toUpperCase(), px, py + dpr * 0.5); ctx.globalAlpha = 1;
     }

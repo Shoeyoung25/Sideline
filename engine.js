@@ -23,6 +23,12 @@
   var SPOTS = [[0, 30], [-18.5, 22], [18.5, 22], [-22.5, 6.5], [22.5, 6.5], [-11, 28], [11, 28]];
   var ZONE = [[-9, 21], [9, 21], [-13, 9.5], [13, 9.5], [0, 8]];
 
+  // ---------- badges ----------
+  // The order here is the order of BB.BADGES in data.js: a badge's place in the list is its on-court tag code minus 30.
+  var BADGE_IDS = 'ded lim mini saf arc stm smo pfp flo lmx pai phy pph hok pos ris aer ank dim vv bail unp shd lit cha sea abr glv int pkd obp pat wal pld imm hfd box clo cra brk bwl sli clu mic cor gia mis pnr zon flg ace'.split(' ');
+  var BIX = {}; BADGE_IDS.forEach(function (id, i) { BIX[id] = i; });
+  var BF = [0, 0.4, 0.7, 1, 1.35]; // how much of a badge's full effect each tier gives: none, Bronze, Silver, Gold, Hall of Fame
+  function bg(p, id) { var b = p && p.r.b; return b && !E.noBadges ? BF[b[id] || 0] : 0; }
   function Sim(teams, seed) {
     this.rand = mulberry(seed || 1);
     this.t = 0; this.P = []; this.score = [0, 0]; this.events = []; this.done = null;
@@ -42,6 +48,9 @@
   Sim.prototype.holder = function () { return this.ball.h >= 0 ? this.P[this.ball.h] : null; };
   // codes: 1 screened, 2 switch, 3 beat his man, 4 cut off, 5 double, 6 open, 7 denied, 8 trap
   Sim.prototype.tag = function (c, p) { if (!p) return; this.tags = (this.tags || []).filter(function (q) { return q.i !== p.i; }); this.tags.push({ c: c, i: p.i, t: this.t }); if (this.tags.length > 3) this.tags.shift(); };
+  Sim.prototype.badge = function (p, id) { if (!p || !(p.r.b && p.r.b[id] >= 2)) return ''; this.tag(30 + BIX[id], p); return id; }; // show it over his head (Silver and up)
+  Sim.prototype.note = function (q, id, other) { if (!this.badge(q, id)) return ''; return ' Badge: ' + (E.badgeName ? E.badgeName(id) : id) + (other ? ' (' + q.name + ').' : '.'); }; // text for the play by play
+  Sim.prototype.badgeNote = function (c, sh) { var q = this.P[c[0]]; return this.note(q, c[1], q !== sh); };
   Sim.prototype.ev = function (txt, kind) { this.events.push({ t: this.t, txt: txt, kind: kind || 'i' }); };
   Sim.prototype.offs = function () { var a = []; for (var s = 0; s < 5; s++) a.push(this.op(s)); return a; };
   Sim.prototype.defs = function () { var a = []; for (var s = 0; s < 5; s++) a.push(this.dp(s)); return a; };
@@ -62,8 +71,9 @@
     var self = this, i, p;
     this.offTeam = offTeam; this.defTeam = 1 - offTeam; this.done = null; this.sc = 20;
     for (i = 0; i < 10; i++) { p = this.P[i]; p.lay = false; p.stun = 0; p.trailUntil = 0; p.reactUntil = 0; p.stripAt = 0; p.path = null; p.scrUntil = 0; p.scrPending = false; p.imm = {}; p.driving = false; p.post = false; p.dribbled = false; p.mode = null; p.tx = p.x; p.ty = p.y; }
-    this.ball.fly = null; this.ball.reb = null;
+    this.ball.fly = null; this.ball.reb = null; this.orebT = -9;
     var offs = this.offs();
+    var top = offs[0]; offs.forEach(function (q) { if (q.r.ovr > top.r.ovr) top = q; }); this.aceOf = top.i; // the man an Ace Stopper wants
     if (this.inbound || this.ball.h < 0 || this.P[this.ball.h].team !== offTeam) {
       // inbound under the hoop this team defends
       var own = hoop(1 - offTeam), best = offs[0];
@@ -129,32 +139,72 @@
     var type = d < 5.5 ? 'rim' : isThree ? 'three' : d < 11 ? 'short' : 'mid';
     var n1 = null, d1 = 99, d2 = 99, n2 = null, k, dd;
     for (k = 0; k < 5; k++) {
-      var q = defs[k]; dd = pd(q, p) + (q.stun > 0.15 ? 1.0 : q.trailUntil > this.t ? 1.1 : 0);
+      var q = defs[k]; dd = pd(q, p) + (q.stun > 0.15 ? 1.0 : q.trailUntil > this.t ? 1.1 * (type === 'rim' ? 1 - 0.5 * bg(q, 'hfd') : 1) : 0);
       if (closeBy) dd = Math.max(type === 'rim' ? 0.9 : 1.3, dd - closeBy);
       if (dd < d1) { d2 = d1; n2 = n1; d1 = dd; n1 = q; } else if (dd < d2) { d2 = dd; n2 = q; }
     }
-    var pm, pts = isThree ? 3 : 2, pf = 0;
+    var pm, pts = isThree ? 3 : 2, pf = 0, o = this.o, cr = [], self = this, x;
+    function add(who, id, v) { if (v > 0.0001) cr.push([who.i, id, v]); return v; } // remembers which badge mattered, so the game can show it
     function rimC(q, dd2) { return dd2 >= 5 ? 0 : (1 - Math.max(0, dd2 - 1.8) / 3.2) * clamp(0.10 + ((q.r.rim * 0.65 + q.r.blk * 0.35) - 50) / 49 * 0.17 + (q.r.size - r.size) * 0.026 + ((q.r.vert || 75) - 75) * 0.0008, 0.02, 0.36); }
     if (type === 'rim') {
       pm = 0.575 + (r.ins - 75) * 0.006;
-      pm -= rimC(n1, d1) + (this.d && this.d.style === 'zone' ? 0.9 : this.d && this.d.help === 'help' ? 0.85 : 0.5) * rimC(n2, d2);
+      var rc1 = rimC(n1, d1), rc2 = (this.d && this.d.style === 'zone' ? 0.9 : this.d && this.d.help === 'help' ? 0.85 : 0.5) * rimC(n2, d2);
+      if (rc1 > 0 && n1) { x = rc1 * 0.12 * bg(n1, 'pat'); rc1 += x; add(n1, 'pat', x); }
+      if (rc2 > 0 && n2) rc2 *= 1 + 0.12 * bg(n2, 'pat');
+      if (d1 < 3.6 && n1) {
+        x = rc1 * 0.1 * bg(p, 'lmx'); rc1 -= x; add(p, 'lmx', x);
+        x = rc1 * 0.09 * bg(p, 'phy'); rc1 -= x; add(p, 'phy', x + 0.004 * bg(p, 'phy'));
+        x = 0.012 * bg(n1, 'wal'); rc1 += x; add(n1, 'wal', x);
+      }
+      pm -= rc1 + rc2;
+      if (p.dribbled && d1 < 4) pm += add(p, 'pos', 0.012 * bg(p, 'pos'));
+      if (!p.dribbled) pm += add(p, 'ris', 0.016 * bg(p, 'ris'));
+      if (o && (o.caught || this.t - (this.orebT || -9) < 3)) pm += add(p, 'aer', 0.02 * bg(p, 'aer'));
+      if (p.post) pm += add(p, 'hok', 0.012 * bg(p, 'hok'));
+      if (n1 && d1 < 4 && n1.r.hgt - r.hgt >= 4) pm += add(p, 'gia', 0.018 * bg(p, 'gia'));
       pm += ((r.vert || 75) - 75) * 0.0012; // leapers finish
       if (d1 < 3.2 && n1) pm += clamp((r.str - n1.r.str) * 0.0013, -0.04, 0.045); // a stronger finisher goes through the contact
       if (d1 >= 6) pm += 0.14;
-      if (d1 < 3.6) pf = 0.11 + Math.min(0.1, r.fta * 0.011);
+      if (d1 < 3.6) pf = 0.11 + Math.min(0.1, r.fta * 0.011) + 0.015 * bg(p, 'phy') - 0.012 * bg(n1, 'wal');
     } else {
       var base;
-      if (type === 'three') base = 0.336 + (r.three - 70) * 0.0043 - Math.max(0, d - 26) * 0.012 - (this.d && this.d.style === 'zone' ? this.zoneCover(p) : 0); // zone closeouts arrive late but arrive: the model's rotations are slower than a real zone's
+      if (type === 'three') base = 0.336 + (r.three - 70) * 0.0043 - Math.max(0, d - 26) * 0.012 * (1 - 0.6 * Math.min(1, bg(p, 'lim'))) - (this.d && this.d.style === 'zone' ? this.zoneCover(p) * (1 - 0.3 * bg(p, 'zon')) : 0); // zone closeouts arrive late but arrive: the model's rotations are slower than a real zone's
       else if (type === 'short') base = 0.43 + (r.ins - 75) * 0.004;
       else base = 0.40 + (r.mid - 76) * 0.004;
-      var c = 0;
+      var c = 0, pm0 = 0;
       if (d1 >= 6) c = -0.03;
-      else { c = Math.pow(1 - Math.max(0, d1 - 1.8) / 4.2, 0.62) * clamp(0.17 + (n1.r.pd - 60) / 40 * 0.07 + (n1.r.size - r.size) * 0.021, 0.05, 0.3); }
-      pm = base - c;
+      else {
+        c = Math.pow(1 - Math.max(0, d1 - 1.8) / 4.2, 0.62) * clamp(0.17 + (n1.r.pd - 60) / 40 * 0.07 + (n1.r.size - r.size) * 0.021, 0.05, 0.3);
+        x = c * 0.14 * bg(p, 'ded'); c -= x; add(p, 'ded', x);
+        x = c * 0.12 * bg(n1, 'cha'); c += x; add(n1, 'cha', x);
+        if (d1 < 5 && n1.r.hgt - r.hgt >= 3) pm0 += add(p, 'mini', 0.014 * bg(p, 'mini'));
+      }
+      pm = base - c + pm0;
+      if (type === 'three') {
+        if (d > 26.5) add(p, 'lim', Math.max(0, d - 26) * 0.012 * 0.6 * Math.min(1, bg(p, 'lim')));
+        pm += p.dribbled ? add(p, 'arc', 0.016 * bg(p, 'arc')) : add(p, 'saf', 0.014 * bg(p, 'saf'));
+        if (Math.abs(h.hx) >= 20 && h.hy < 14.5) pm += add(p, 'cor', 0.016 * bg(p, 'cor'));
+      } else if (type === 'mid') pm += p.dribbled ? add(p, 'smo', 0.018 * bg(p, 'smo')) : add(p, 'stm', 0.014 * bg(p, 'stm'));
+      else { pm += add(p, 'flo', 0.02 * bg(p, 'flo')); if (!p.dribbled) pm += add(p, 'pai', 0.012 * bg(p, 'pai')); if (p.post) pm += add(p, 'hok', 0.016 * bg(p, 'hok')); }
+      if (p.post && type !== 'three') pm += add(p, 'pfp', 0.018 * bg(p, 'pfp'));
+      if (this.d && this.d.style === 'zone') pm += add(p, 'zon', 0.006 * bg(p, 'zon') + (type === 'three' ? this.zoneCover(p) * 0.3 * bg(p, 'zon') : 0)) - (type === 'three' ? this.zoneCover(p) * 0.3 * bg(p, 'zon') : 0);
       if (p.dribbled) pm -= 0.035;
       if (type === 'short' && d1 < 3) pf = 0.07 + Math.min(0.06, r.fta * 0.006);
     }
-    if (this.sc < 5) pm -= (99 - r.cmp) / 99 * 0.06; // rushed shots punish shaky players
+    if (this.sc < 5) pm -= (99 - r.cmp) / 99 * 0.06 * (1 - 0.6 * Math.min(1, bg(p, 'clu'))); // rushed shots punish shaky players
+    if (!E.noBadges) pm -= E.BADGE_BASE; // the average player's badges are already in the base numbers: this keeps league scoring where it was
+    if (this.clutch || this.sc < 5) pm += add(p, 'clu', 0.02 * bg(p, 'clu'));
+    if (((this.hot || {})[p.i] || 0) >= 1) pm += add(p, 'mic', 0.012 * bg(p, 'mic'));
+    if (o) {
+      var lp0 = o.lastPass; if (lp0 && lp0.to === p.slot && this.t - lp0.t < 3 && d1 >= 4) { var psr = this.op(lp0.from); x = 0.014 * bg(psr, 'dim'); pm += x; add(psr, 'dim', x); }
+      if (p.dribbled && this.t - (o.lastBallScreen || -9) < 3) pm += add(p, 'pnr', 0.014 * bg(p, 'pnr'));
+      var fg = 0, fgp = null; for (var fi = 0; fi < 5; fi++) { var mt = this.op(fi); if (mt !== p && bg(mt, 'flg') > fg) { fg = bg(mt, 'flg'); fgp = mt; } }
+      if (fgp) pm += 0.005 * fg;
+    }
+    if (n1 && d1 < 5) {
+      if (Math.abs(n1.r.size - r.size) >= 0.8) pm += add(p, 'mis', 0.014 * bg(p, 'mis'));
+      if (this.aceOf === p.i) { x = 0.014 * bg(n1, 'ace'); pm -= x; add(n1, 'ace', x); }
+    }
     pm += 0.025 * Math.min(2, Math.max(0, ((this.hot || {})[p.i] || 0) - 1)); // a shooter who has made two straight is feeling it
     var sp0 = this.d ? this.d.spots : null;
     if (sp0 && sp0.length) { var inW = false; for (var wi = 0; wi < sp0.length; wi++) if (sp0[wi].k === 'wall' && dist(p.x, p.y, sp0[wi].x, sp0[wi].y) < 5.5) inW = true; pm += inW ? -0.07 : 0.012 * sp0.length; } // a spot the defense is fighting for is a bad place to shoot from; every marker thins the cover everywhere else
@@ -163,7 +213,7 @@
     if (this.clutch) pm += (r.cmp - 75) * 0.003; // late and close: composure shows
     pm = clamp(pm, 0.08, 0.92);
     var ev = (1 - pf) * pm * pts + pf * 2 * r.ft;
-    return { ev: ev, pm: pm, pts: pts, pf: pf, type: type, d1: d1, n1: n1, dist: d };
+    return { ev: ev, pm: pm, pts: pts, pf: pf, type: type, d1: d1, n1: n1, dist: d, cr: cr };
   };
 
   Sim.prototype.shoot = function (p) {
@@ -181,9 +231,11 @@
     var make = this.rand() < s.pm; this.box[p.i][4]++;
     var lp = o.lastPass; this.astBy = make && lp && lp.to === p.slot && this.t - lp.t < 4.5 ? lp.from : -1;
     (this.shots = this.shots || []).push([s.type, make ? 1 : 0, Math.round(s.d1)]);
-    var blocked = !make && s.type === 'rim' && s.d1 < 3 && this.rand() < 0.14 + s.n1.r.blk / 400;
+    var blocked = !make && s.type === 'rim' && s.d1 < 3 && this.rand() < 0.14 + s.n1.r.blk / 400 + 0.04 * bg(s.n1, 'pat') + 0.02 * bg(s.n1, 'hfd') - 0.04 * bg(p, 'pos');
+    var bdg = null, bv = 0.0075; // the badge that mattered most on this shot: the offense's on a make, the defense's on a miss
+    s.cr.forEach(function (c) { var mine = self.P[c[0]].team === self.offTeam; if (mine === make && c[2] > bv) { bv = c[2]; bdg = c; } });
     this.ball.h = -1;
-    this.ball.fly = { type: 'shot', fx: p.x, fy: p.y, tx: hp.x, ty: hp.y, t0: this.t, dur: 0.5 + s.dist / 42, make: make, pts: s.pts, shooter: p.i, label: label, blocked: blocked ? s.n1.name : null, open: s.d1 >= 6, over: s.n1 && s.d1 < 4.5 && p.r.hgt - s.n1.r.hgt >= 4 ? s.n1.name : s.n1 && s.d1 < 3.2 && s.type === 'rim' && p.r.str - s.n1.r.str >= 14 ? '>' + s.n1.name : '' };
+    this.ball.fly = { type: 'shot', fx: p.x, fy: p.y, tx: hp.x, ty: hp.y, t0: this.t, dur: 0.5 + s.dist / 42, make: make, pts: s.pts, shooter: p.i, label: label, blocked: blocked ? s.n1.name : null, bdg: bdg, open: s.d1 >= 6, over: s.n1 && s.d1 < 4.5 && p.r.hgt - s.n1.r.hgt >= 4 ? s.n1.name : s.n1 && s.d1 < 3.2 && s.type === 'rim' && p.r.str - s.n1.r.str >= 14 ? '>' + s.n1.name : '' };
     if (this.ball.fly.over) this.tag(15, p);
     this.crashAndBox(p);
   };
@@ -219,7 +271,7 @@
       var dd = dist(p.x, p.y, bx, by), prox = 1 / (1 + Math.pow(dd / 5.5, 2));
       var tf = p.team === self.offTeam ? (o.crash[p.slot] ? 0.6 + 0.03 * (o.nCrash - 3) : 0.2) : (1.3 - 0.1 * d.nLeak) * (d.style === 'zone' ? 0.88 : 1);
       if (p.team !== self.offTeam && d.leak[p.slot]) tf = 0.02;
-      var v = Math.pow((p.r.reb * 0.85 + p.r.str * 0.15) / 70, 2.4) * (1 + ((p.r.hgt || 79) - 79) * 0.015 + ((p.r.vert || 75) - 75) * 0.004) * prox * tf * (p.stun > 0 ? 0.6 : 1) + 0.0005;
+      var v = Math.pow((p.r.reb * 0.85 + p.r.str * 0.15) / 70, 2.4) * (1 + ((p.r.hgt || 79) - 79) * 0.015 + ((p.r.vert || 75) - 75) * 0.004) * prox * tf * (p.stun > 0 ? 0.6 : 1) * (p.team === self.offTeam ? (1 + 0.14 * bg(p, 'cra')) * (1 + 0.1 * bg(p, 'brk')) : (1 + 0.1 * bg(p, 'box')) * (1 + 0.08 * bg(p, 'clo'))) + 0.0005;
       w.push(v); tot += v;
     });
     var roll = this.rand() * tot, pick = 0;
@@ -227,7 +279,8 @@
     var p = this.P[pick];
     this.ball.reb = null; this.ball.h = p.i; this.ball.x = p.x; this.ball.y = p.y; this.ball.z = 0; p.dribbled = false; this.box[p.i][1]++;
     if (p.team === this.offTeam) {
-      this.ev(p.name + ' grabs the offensive rebound.', 'i');
+      this.orebT = this.t;
+      this.ev(p.name + ' grabs the offensive rebound.' + (this.note(p, 'cra') || this.note(p, 'brk')), 'i');
       this.sc = 14; o.beats = null; o.ho = null; o.opt = null; o.free = true; o.forced = false; o.gen = false; o.think = 0.4; o.phase = 'run'; o.drives = 0; o.pendingRead = false; o.liveQ = null;
       this.offs().forEach(function (q) { q.driving = false; q.post = false; });
     } else {
@@ -271,10 +324,11 @@
       if (q.stun > 0.1) return;
       var near = pd(q, H) < 4;
       var sd = segDist(q.x, q.y, H.x, H.y, T.x, T.y, 0.22);
-      if (sd < 2.6 && !near) { var m = (1 - sd / 2.6) * (0.07 + ((q.r.stl * 0.6 + q.r.diq * 0.4) - 62) / 40 * 0.05); if (d.deny[T.slot] || d.gamble[q.slot] > self.t) m *= 1.7; risk += m; }
+      if (sd < 2.6 && !near) { var m = (1 - sd / 2.6) * (0.07 + ((q.r.stl * 0.6 + q.r.diq * 0.4) - 62) / 40 * 0.05) * (1 + 0.22 * bg(q, 'int')) * (1 - 0.2 * Math.min(1.2, bg(H, 'vv'))); if (d.deny[T.slot] || d.gamble[q.slot] > self.t) m *= 1.7; risk += m; }
       if (near) risk += 0.005;
     });
-    if (this.doubled(H)) risk += 0.04;
+    if (this.doubled(H)) risk += 0.04 * (1 - 0.5 * Math.min(1.2, bg(H, 'bail')));
+    if (!E.noBadges) risk *= 1.3;
     var sp = this.d ? this.d.spots : null; // a marked steal spot: a defender is waiting on any pass thrown there
     if (sp) for (var si = 0; si < sp.length; si++) if (sp[si].k === 'steal' && dist(T.tx, T.ty, sp[si].x, sp[si].y) < 6 && dist(T.x, T.y, sp[si].x, sp[si].y) < 9) { risk += 0.12; break; }
     return clamp(risk, 0.005, 0.9);
@@ -285,7 +339,7 @@
     var l = pd(H, T);
     if (this.rand() < risk) {
       var by = null, bd = 1e9; this.defs().forEach(function (q) { var sd = segDist(q.x, q.y, H.x, H.y, T.x, T.y, 0.18); if (sd < bd) { bd = sd; by = q; } });
-      if (bd < 4.5) this.loseBall(by.name + ' picks off the pass from ' + H.name + '.', by, 'Steal', 0, 0, Math.max(0.18, pd(H, by) / 38));
+      if (bd < 4.5) this.loseBall(by.name + ' picks off the pass from ' + H.name + '.' + this.note(by, 'int'), by, 'Steal', 0, 0, Math.max(0.18, pd(H, by) / 38));
       else { var u = unit(H.x, H.y, T.x, T.y), ox = clamp(T.x + u.x * 12, -1, 51), oy = clamp(T.y + u.y * 12, -1, 95); this.loseBall(H.name + ' throws it out of bounds.', null, 'Out of bounds', ox, oy, (l + 12) / 38); }
       return false;
     }
@@ -303,9 +357,13 @@
     if (!G) return 0.95;
     if (G.stun > 0.2 || G.trailUntil > this.t || pd(G, H) > 7.5) return 0.92;
     var d = this.d, p;
-    if (post) p = 0.42 + ((H.r.ins + H.r.str * 0.5 + H.r.size * 4) - (G.r.rim + G.r.str * 0.5 + G.r.size * 4)) / 140 - (d.style === 'zone' ? 0.16 : 0);
+    if (post) p = 0.42 + ((H.r.ins + H.r.str * 0.5 + H.r.size * 4) - (G.r.rim + G.r.str * 0.5 + G.r.size * 4)) / 140 - (d.style === 'zone' ? 0.16 : 0) + 0.04 * bg(H, 'pph') - 0.04 * bg(G, 'pld');
     else {
-      p = 0.36 + clamp(((H.r.hnd * 0.6 + H.r.spd * 0.4) - (G.r.pd * 0.65 + G.r.spd * 0.35)) / 110, -0.17, 0.17) + clamp((H.r.str - G.r.str) / 500, -0.035, 0.04);
+      p = 0.36 + clamp(((H.r.hnd * 0.6 + H.r.spd * 0.4) - (G.r.pd * 0.65 + G.r.spd * 0.35)) / 110, -0.17, 0.17) + clamp((H.r.str - G.r.str) / 500, -0.035, 0.04) * (H.r.str > G.r.str ? 1 - 0.7 * Math.min(1, bg(G, 'imm')) : 1);
+      p += 0.035 * Math.max(0, bg(H, 'ank') - 0.7 * bg(G, 'abr')) + 0.02 * bg(H, 'lit') - 0.035 * bg(G, 'sea');
+      if (Math.abs(G.r.size - H.r.size) >= 0.8) p += 0.03 * bg(H, 'mis');
+      if (this.t - (this.o.lastBallScreen || -9) < 3) p += 0.03 * bg(H, 'pnr');
+      if (this.aceOf === H.i) p -= 0.02 * bg(G, 'ace');
       var pr = d.ppRule[H.slot] || d.pp[H.slot] || d.press;
       if (d.contest[G.slot] > this.t) p += 0.16; else if (pr === 'tight') p += 0.18; else if (pr === 'sag') p -= 0.2;
       var hp = hoop(this.offTeam), u = unit(G.x, G.y, H.x, H.y);
@@ -329,16 +387,17 @@
     var o = this.o, G = this.guardOf(p), hp = hoop(this.offTeam);
     o.drives++;
     if (!post) for (var si = 0; si < 5; si++) { var S = this.op(si); if (S !== p && S.scrUntil > this.t && pd(S, p) < 6 && G) { this.applyScreen(G, S, p, p, this.d.style === 'zone'); G = this.guardOf(p); } }
-    var ps = 0.006 + Math.max(0, (G ? G.r.stl - p.r.hnd : 0)) / 1400 + (this.doubled(p) ? 0.03 : 0);
+    var ps = 0.006 + Math.max(0, (G ? G.r.stl - p.r.hnd : 0)) / 1400 + (this.doubled(p) ? 0.03 * (1 - 0.5 * Math.min(1, bg(p, 'shd'))) : 0);
+    ps *= (E.noBadges ? 1 : 1.35) * (1 - 0.3 * Math.min(1.2, bg(p, 'unp'))) * (1 + 0.4 * bg(G, 'glv')); if (G && (this.d.pp[p.slot] === 'tight' || this.d.press === 'tight')) ps *= 1 - 0.3 * Math.min(1, bg(p, 'shd'));
     p.stripAt = G && this.rand() < ps ? this.t + 0.35 + this.rand() * 0.45 : 0; p.stripBy = G ? G.i : -1;
     var beaten = this.rand() < this.pBeat(p, G, post);
     p.driving = true; p.post = !!post; p.dribbled = true; p.drvEnd = this.t + 2.6; p.scrUntil = 0;
-    if (beaten) { if (G && pd(G, p) < 7.5) { G.trailUntil = this.t + (post ? 0.3 : 0.7) + this.rand() * 0.25 + (post ? 0 : clamp((p.r.spd - G.r.spd) / 40, 0, 0.5)); G.stun = Math.max(G.stun, 0.12); this.tag(3, p); } p.tx = tx; p.ty = ty; p.sp = 0.92; }
+    if (beaten) { if (G && pd(G, p) < 7.5) { G.trailUntil = this.t + (post ? 0.3 : 0.7) + this.rand() * 0.25 + (post ? 0 : clamp((p.r.spd - G.r.spd) / 40, 0, 0.5) + 0.1 * bg(p, 'ank') + 0.08 * bg(p, 'lit') - 0.1 * bg(G, 'abr')); G.stun = Math.max(G.stun, 0.12); this.tag(3, p); if (post) this.badge(p, 'pph'); else if (!this.badge(p, 'ank')) this.badge(p, 'lit'); } p.tx = tx; p.ty = ty; p.sp = 0.92; }
     else {
       // the defender stays in front: the driver gets as deep as the defender lets him, then has to stop
       var minR = (post ? 6.5 : 9) + this.rand() * 2.5, dT = dist(tx, ty, hp.x, hp.y), dP = pd(p, hp), nx = tx, ny = ty;
       if (dT < minR) { if (dP <= minR + 0.5) { nx = p.x; ny = p.y; } else { var f = clamp((dP - minR) / ((dP - dT) || 1), 0, 1); nx = p.x + (tx - p.x) * f; ny = p.y + (ty - p.y) * f; } }
-      p.tx = nx; p.ty = ny; p.sp = 0.62; if (G) this.tag(4, G);
+      p.tx = nx; p.ty = ny; p.sp = 0.62; if (G) { this.tag(4, G); if (!post) this.badge(G, 'sea'); else this.badge(G, 'pld'); }
     }
     return true;
   };
@@ -655,7 +714,7 @@
   Sim.prototype.updOffense = function (dt) {
     var o = this.o, H = this.holder();
     if (this.ball.fly || this.ball.reb || !H) return;
-    if (H.stripAt && this.t >= H.stripAt) { var sb = this.P[H.stripBy]; H.stripAt = 0; if (H.driving && sb && pd(sb, H) < 3.6) { this.loseBall(sb.name + ' pokes it away from ' + H.name + '.', sb, 'Steal', 0, 0, 0.24); return; } }
+    if (H.stripAt && this.t >= H.stripAt) { var sb = this.P[H.stripBy]; H.stripAt = 0; if (H.driving && sb && pd(sb, H) < 3.6) { this.loseBall(sb.name + ' pokes it away from ' + H.name + '.' + this.note(sb, 'glv'), sb, 'Steal', 0, 0, 0.24); return; } }
     if (o.phase === 'adv') { this.advance(dt); return; }
     if (this.sc <= 4.2 && !o.forced) { o.forced = true; o.beats = null; o.ho = null; o.opt = null; o.defer = null; this.offs().forEach(function (q) { q.driving = false; }); o.phase = 'run'; o.think = Math.min(o.think, 0.05); o.free = true; }
     if (o.phase === 'reset') { this.resetStep(); return; }
@@ -830,7 +889,7 @@
         if (blk > 2.7 && near > 3.2) continue; // he has a clear line to his man: the screen missed him
         var s0 = G.stun, mS = (S.r.wgt || 215) * (1 + S.r.str / 200), mG = (G.r.wgt || 215) * (1 + G.r.str / 200);
         this.applyScreen(G, S, U, H, zone);
-        if (G.stun > s0) { var sq = clamp(1.15 - Math.min(blk, near) / 2.7 * 0.6, 0.5, 1.15), mf = clamp(1 + (mS - mG) / 520, 0.8, 1.3); G.stun = s0 + (G.stun - s0) * sq * mf; }
+        if (G.stun > s0) { var sq = clamp(1.15 - Math.min(blk, near) / 2.7 * 0.6, 0.5, 1.15), mf = clamp(1 + (mS - mG) / 520, 0.8, 1.3), bq = (1 + 0.14 * bg(S, 'bwl')) * (U === H ? 1 - 0.2 * bg(G, 'pkd') : (1 - 0.2 * bg(G, 'obp')) * (1 + 0.12 * bg(U, 'sli'))); G.stun = s0 + (G.stun - s0) * sq * mf * bq; }
       }
     }
   };
@@ -903,11 +962,12 @@
           if (f.make) {
             this.hot[sh.i] = (this.hot[sh.i] || 0) + 1; if (this.hot[sh.i] >= 2) this.tag(14, sh);
             this.score[this.offTeam] += f.pts; this.box[sh.i][0] += f.pts; this.box[sh.i][3]++; if (this.astBy >= 0) this.box[this.offTeam * 5 + this.astBy][2]++;
-            this.ev(sh.name + (f.pts === 3 ? ' hits the three' : f.label === 'at the rim' ? ' scores at the rim' : f.label === 'in the paint' ? ' scores in the paint' : ' hits the jumper') + (f.open ? ', wide open.' : f.over ? (f.over.charAt(0) === '>' ? ', right through ' + f.over.slice(1) + '.' : ' over the smaller ' + f.over + '.') : '.'), 'score');
+            var bn = f.bdg ? this.badgeNote(f.bdg, sh) : '';
+            this.ev(sh.name + (f.pts === 3 ? ' hits the three' : f.label === 'at the rim' ? ' scores at the rim' : f.label === 'in the paint' ? ' scores in the paint' : ' hits the jumper') + (f.open ? ', wide open.' : f.over ? (f.over.charAt(0) === '>' ? ', right through ' + f.over.slice(1) + '.' : ' over the smaller ' + f.over + '.') : '.') + bn, 'score');
             this.finish('make', f.pts, true);
           } else {
             this.hot[sh.i] = 0;
-            this.ev(f.blocked ? f.blocked + ' blocks ' + sh.name + '!' : sh.name + ' misses the ' + (f.pts === 3 ? 'three.' : f.label === 'jumper' ? 'jumper.' : 'shot ' + f.label + '.'), 'miss');
+            this.ev((f.blocked ? f.blocked + ' blocks ' + sh.name + '!' : sh.name + ' misses the ' + (f.pts === 3 ? 'three.' : f.label === 'jumper' ? 'jumper.' : 'shot ' + f.label + '.')) + (f.bdg ? this.badgeNote(f.bdg, sh) : ''), 'miss');
             var hpR = hoop(this.offTeam), angR = this.rand() * Math.PI * 2, rrR = (f.pts === 3 ? 3.5 : 2) + this.rand() * 5, ox0 = f.blocked ? f.fx + (hpR.x - f.fx) * 0.25 : hpR.x, oy0 = f.blocked ? f.fy + (hpR.y - f.fy) * 0.25 : hpR.y;
             var rbx = clamp(ox0 + Math.cos(angR) * rrR, 2, 48), rby = clamp(oy0 + Math.abs(Math.sin(angR)) * rrR * (this.offTeam === 0 ? -1 : 1) * (f.blocked && this.rand() < 0.5 ? -1 : 1), 1.5, 92.5), selfR = this;
             b.fly = null; b.reb = { at: t + 0.72, t0: t, fx: ox0, fy: oy0, x: rbx, y: rby, z0: f.blocked ? 7 : 10 }; b.z = b.reb.z0;
@@ -979,7 +1039,7 @@
     return a;
   };
 
-  var E = { Sim: Sim, h2w: h2w, w2h: w2h, hoop: hoop, CW: CW, CL: CL, RIMY: RIMY };
+  var E = { Sim: Sim, h2w: h2w, w2h: w2h, hoop: hoop, CW: CW, CL: CL, RIMY: RIMY, BADGE_IDS: BADGE_IDS, BADGE_BASE: 0.028 };
   root.BBEngine = E;
   if (typeof module !== 'undefined') module.exports = E;
 })(typeof window !== 'undefined' ? window : globalThis);
