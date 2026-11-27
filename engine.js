@@ -144,12 +144,12 @@
       if (d1 < 3.6) pf = 0.11 + Math.min(0.1, r.fta * 0.011);
     } else {
       var base;
-      if (type === 'three') base = 0.336 + (r.three - 70) * 0.0043 - Math.max(0, d - 26) * 0.012 - (this.d && this.d.style === 'zone' ? 0.055 : 0); // zone closeouts arrive late but arrive: the model's rotations are slower than a real zone's
+      if (type === 'three') base = 0.336 + (r.three - 70) * 0.0043 - Math.max(0, d - 26) * 0.012 - (this.d && this.d.style === 'zone' ? this.zoneCover(p) : 0); // zone closeouts arrive late but arrive: the model's rotations are slower than a real zone's
       else if (type === 'short') base = 0.43 + (r.ins - 75) * 0.004;
       else base = 0.40 + (r.mid - 76) * 0.004;
       var c = 0;
       if (d1 >= 6) c = -0.03;
-      else { c = (1 - Math.max(0, d1 - 1.8) / 4.2) * clamp(0.17 + (n1.r.pd - 60) / 40 * 0.07 + (n1.r.size - r.size) * 0.021, 0.05, 0.3); }
+      else { c = Math.pow(1 - Math.max(0, d1 - 1.8) / 4.2, 0.62) * clamp(0.17 + (n1.r.pd - 60) / 40 * 0.07 + (n1.r.size - r.size) * 0.021, 0.05, 0.3); }
       pm = base - c;
       if (p.dribbled) pm -= 0.035;
       if (type === 'short' && d1 < 3) pf = 0.07 + Math.min(0.06, r.fta * 0.006);
@@ -168,7 +168,7 @@
 
   Sim.prototype.shoot = function (p) {
     var s = this.shotInfo(p), o = this.o, hp = hoop(this.offTeam), self = this;
-    if (o.tr && !o.tr.why && ((o.beats && !o.gen) || this.t - (o.trT || -9) < 2.6)) { o.tr.shot = true; o.tr.done = true; s.pm = Math.min(0.92, s.pm + (o.jumped === 'shooter' ? -0.06 : o.jumped ? 0 : s.pts === 3 ? 0.04 : 0.07) + (o.fresh ? (s.pts === 3 ? 0.02 : 0.03) : 0)); } // the shot the play was drawn to get: taken in rhythm
+    if (o.tr && !o.tr.why && ((o.beats && !o.gen) || this.t - (o.trT || -9) < 2.6)) { o.tr.shot = true; o.tr.done = true; s.pm = Math.min(0.92, s.pm + (o.jumped === 'shooter' ? -0.06 : o.jumped ? 0 : s.pts === 3 ? (s.d1 >= 6 ? 0.012 : 0.03) : 0.07) + (o.fresh ? (s.pts === 3 ? 0.02 : 0.03) : 0)); } // the shot the play was drawn to get: taken in rhythm
     o.beats = null; p.driving = false;
     var label = s.type === 'three' ? 'three' : s.type === 'rim' ? 'at the rim' : s.type === 'short' ? 'in the paint' : 'jumper';
     if (this.rand() < s.pf) {
@@ -676,6 +676,11 @@
 
   // ---------- defense ----------
   // A scheme is man, switch, or a zone. A zone gives each defender a spot and a reach, and any defender can be pulled out to play one man instead.
+  Sim.prototype.zoneCover = function (p) { // how well the zone's shape covers the spot a shooter is standing on
+    var d = this.d, best = 99, j;
+    for (j = 0; j < 5; j++) { if (d.zman[j] != null || !d.zspots[j]) continue; var w = h2w(this.offTeam, d.zspots[j][0], d.zspots[j][1]), dd = dist(p.x, p.y, w.x, w.y) - (d.zr[j] - 14) * 0.25; if (dd < best) best = dd; }
+    return best <= 10 ? 0.07 : best >= 16 ? 0 : 0.07 * (16 - best) / 6;
+  };
   Sim.prototype.setScheme = function (sc, quiet) {
     var d = this.d, self = this, z = sc.zone || {}, hpw = { x: 0, y: 5.25 }, j;
     d.style = sc.style === 'zone' ? 'zone' : sc.style === 'switch' ? 'switch' : 'man';
@@ -767,6 +772,7 @@
         else {
           var zp = h2w(off, d.zspots[j][0], d.zspots[j][1]); tx = zp.x + (bx - zp.x) * 0.3; ty = zp.y + (by - zp.y) * 0.3;
           var zn = zMan[j];
+          if (j === d.anchor && !zn) { var zin = null, zid2 = 10.5; self.offs().forEach(function (q) { var dq = pd(q, hp) - (q === H ? 4 : 0); if (pd(q, hp) < 10.5 && dq < zid2 && !d.zmanOf[q.slot]) { zid2 = dq; zin = q; } }); if (zin) { var ua = unit(zin.x, zin.y, hp.x, hp.y); tx = zin.x + ua.x * 2.2; ty = zin.y + ua.y * 2.2; } }
           if (zn) { var uz = unit(zn.x, zn.y, hp.x, hp.y), sh2 = j === d.anchor ? 0.2 : 0.92; tx += (zn.x + uz.x * 2.9 - tx) * sh2; ty += (zn.y + uz.y * 2.9 - ty) * sh2; }
         }
       } else {
@@ -806,7 +812,7 @@
     var cov = onBall ? (rs ? 'switch' : d.cover) : (d.style === 'switch' || rs ? 'switch' : 'fight');
     if (cov === 'switch' && D2 && D2 !== D) { var a = d.assign[D.slot]; d.assign[D.slot] = d.assign[D2.slot]; d.assign[D2.slot] = a; D.tx = S.x; D.ty = S.y; D2.tx = U.x; D2.ty = U.y; d.contest[D.slot] = t + 2.5; this.tag(2, D2); D2.imm[S.slot] = t + 2.8; this.nScr = (this.nScr || 0) + 1; return; }
     this.nScr = (this.nScr || 0) + 1; this.tag(cov === 'trap' ? 8 : 1, D);
-    if (!onBall) D.stun = Math.max(D.stun, clamp(0.2 + (S.r.str - D.r.str) / 150, 0.1, 0.5));
+    if (!onBall) D.stun = Math.max(D.stun, clamp(0.15 + (S.r.str - D.r.str) / 150, 0.08, 0.42));
     else if (cov === 'drop') { D.stun = Math.max(D.stun, 0.3); if (D2) { D2.mode = 'drop'; D2.modeUntil = t + 2.0; } }
     else if (cov === 'hedge') { D.stun = Math.max(D.stun, 0.25); if (D2) { D2.mode = 'hedge'; D2.modeUntil = t + 0.9; } }
     else if (cov === 'trap') { D.stun = Math.max(D.stun, 0.2); d.dbl = { o: U.slot, until: t + 2.6 }; d.dblBy = D2 ? D2.slot : -1; }

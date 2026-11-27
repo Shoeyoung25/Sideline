@@ -461,6 +461,8 @@
     var code = h('input#joincode', { type: 'text', maxlength: '4', placeholder: 'CODE', autocomplete: 'off', autocapitalize: 'characters', 'aria-label': 'Game code' });
     return h('.pad',
       h('div', h('h1', { text: 'Sideline' }), h('p.muted', { text: 'Draw up plays, guess theirs, and watch it play out with this season’s NBA players.' })),
+      Net.room && Net.room.raw && asGames().length ? h('.card', h('h3', { text: 'Your turn-based games' }), (asPeek(), h('.glist', asGames().map(function (g) { var st = (ui.peek || {})[g.code];
+          return h('button.gline' + (st && st.go ? '.go' : ''), { onclick: function () { asOpen(g.code, false); } }, h('b', { text: g.code }), h('span', { text: TEAM[g.me] + (st && st.sc ? ' \u00b7 ' + st.sc : '') }), h('i', { text: st ? st.txt : '...' })); })))) : null,
       h('.card', h('h3', { text: 'How a game goes' }), h('.steps',
         h('div', h('span', { text: 'Draft 5 players each, taking turns.' })),
         h('div', h('span', { text: 'With the ball: draw a play or pick one. A play they have not seen catches them a step behind.' })),
@@ -487,7 +489,6 @@
         h('button.btn', { text: 'Host a live game', onclick: hostGame }),
         Net.room.raw ? h('button.btn.primary', { text: 'Start a turn-based game', onclick: function () { var c = '', abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; for (var i = 0; i < 4; i++) c += abc[Math.floor(Math.random() * abc.length)]; asOpen(c, true); } }) : null,
         Net.room.raw ? h('button.btn', { text: 'Open a turn-based game with this code', onclick: function () { var inp = $('#joincode'); asOpen(inp ? inp.value : '', false); } }) : null,
-        Net.room.raw && asGames().length ? h('div', h('h4', { text: 'Your turn-based games' }), h('.chips', asGames().map(function (g) { return h('button.chip', { text: g.code + ' \u00b7 ' + TEAM[g.me], onclick: function () { asOpen(g.code, false); } }); }))) : null,
         h('p.note', { text: 'Turn-based: each coach locks in when he has a minute, the possession plays itself, and you both watch it whenever you open the game. Live: both phones on at once, with live calls.' }),
         Net.room.ping ? h('button.btn.small', { style: 'align-self:flex-start', text: ui.pingMsg === '...' ? 'Testing...' : 'Test this phone\u2019s connection', onclick: function () {
           if (ui.pingMsg === '...') return; ui.pingMsg = '...'; render();
@@ -760,6 +761,24 @@
   var AS = { ref: null, rev: 0, code: '', busy: false, hold: null, w: '' };
   function asGames() { try { var L = JSON.parse(localStorage.getItem('sideline.turns') || '[]'); return Array.isArray(L) ? L : []; } catch (e) { return []; } }
   function asKeep(code, team, watched) { var all = asGames(), old = all.filter(function (g) { return g.code === code; })[0] || {}, L = all.filter(function (g) { return g.code !== code; }); L.unshift({ code: code, me: team, w: watched != null ? watched : old.w || '', t: Date.now() }); try { localStorage.setItem('sideline.turns', JSON.stringify(L.slice(0, 8))); } catch (e) { /* fine */ } }
+  function asPeek() { // one look at each saved game so the home screen can say whose move it is
+    if (ui.peekAt && Date.now() - ui.peekAt < 20000) return; ui.peekAt = Date.now(); ui.peek = ui.peek || {};
+    asGames().forEach(function (g) {
+      Net.room.raw('rooms/t-' + g.code.toLowerCase() + '/g').once('value').then(function (sn) {
+        var D = null; try { D = JSON.parse(sn.val()); } catch (e) { D = null; }
+        var st = { txt: 'Not found', go: false, sc: '' };
+        if (D && D.S) { var G = D.S, pn = Array.isArray(D.pend) ? D.pend : [null, null];
+          if (G.score && G.phase !== 'lobby' && G.phase !== 'draft') st.sc = G.score[0] + '-' + G.score[1];
+          if (G.phase === 'lobby') st.txt = 'Waiting for them to join';
+          else if (G.phase === 'draft') { st.go = G.turn === g.me; st.txt = st.go ? 'Your pick' : 'Their pick'; }
+          else if (G.phase === 'final') { st.txt = G.replay && G.replay.id !== g.w ? 'Final: watch the last play' : 'Final'; st.go = !!(G.replay && G.replay.id !== g.w); }
+          else if (G.replay && G.replay.id !== g.w) { st.go = true; st.txt = 'New play to watch'; }
+          else if (!pn[g.me]) { st.go = true; st.txt = 'Your turn'; }
+          else st.txt = 'Waiting on them'; }
+        ui.peek[g.code] = st; if (S.phase === 'home') render();
+      }).catch(noop);
+    });
+  }
   function asLink() { return location.origin + location.pathname + '?g=' + AS.code; }
   function asShare(txt) {
     var url = asLink();
@@ -770,6 +789,7 @@
     if (!Net.room || !Net.room.raw) { ui.err = 'Turn-based games need the game server, which this page cannot reach.'; render(); return; }
     if (AS.ref) { try { AS.ref.off('value'); } catch (e) { /* fine */ } }
     code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8); if (code.length < 4) { ui.err = 'Type the 4 letter game code.'; render(); return; }
+    ui.peekAt = 0;
     var known = asGames().filter(function (g) { return g.code === code; })[0];
     AS = { ref: Net.room.raw('rooms/t-' + code.toLowerCase() + '/g'), rev: 0, code: code, busy: false, hold: null, w: known ? known.w : '' };
     auth = true; me = create ? 0 : known ? known.me : 1; ui.err = ''; ui.watch = null; S = fresh(); S.mode = 'async'; S.code = code; S.phase = create ? 'lobby' : 'joining';

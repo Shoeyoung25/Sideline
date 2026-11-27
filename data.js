@@ -299,7 +299,7 @@
       beats: [[A('pass', 0, 4), A('mv', 0, -14, 26)], [{ k: 'ho', s: 4, to: 1, w: [[14, 26]] }, { k: 'lay', s: 1, x: 1.5, y: 6.5, w: [[3, 15]] }], [A('mv', 4, 3, 7.5), { k: 'opt', s: 1, list: [{ k: 'pass', to: 4 }, { k: 'pass', to: 3 }, { k: 'pass', to: 0 }, { k: 'sh' }] }]] },
     { id: 'weave', name: 'Handoff weave', group: 'Handoffs', note: 'Two handoffs across the top to get a guard going downhill.',
       setup: [[-10, 29], [10, 29], [-22.5, 6.5], [22.5, 6.5], [0, 18]], ball: 0,
-      beats: [[{ k: 'drv', s: 0, x: 0, y: 28 }], [{ k: 'ho', s: 0, to: 1, w: [[6, 32]] }, { k: 'drv', s: 1, x: -9, y: 16, w: [[-8, 26]] }, A('mv', 4, 5, 8), { k: 'opt', s: 1, list: [{ k: 'lay' }, { k: 'pass', to: 4 }, { k: 'pass', to: 2 }, { k: 'sh' }] }]] },
+      beats: [[{ k: 'drv', s: 0, x: 0, y: 28 }], [{ k: 'ho', s: 0, to: 1, w: [[6, 32]] }, { k: 'drv', s: 1, x: -5, y: 11, w: [[-8, 26]] }, A('mv', 4, 6, 8), { k: 'opt', s: 1, list: [{ k: 'lay' }, { k: 'pass', to: 4 }, { k: 'pass', to: 2 }, { k: 'sh' }] }]] },
     { id: 'gng', name: 'Give and go', group: 'Cuts', note: '1 passes to the wing and cuts hard to the rim for the return pass.',
       setup: BB.FORM['5 out'], ball: 0,
       beats: [[A('pass', 0, 1), A('mv', 0, -2, 7)], [A('pass', 1, 0), A('sh', 0)]] },
