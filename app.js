@@ -105,7 +105,7 @@
     changed();
   }
   function startMatch() {
-    S.score = [0, 0]; S.pos = 0; S.total = 10; S.ot = false; S.off = 1; S.flash = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
+    S.score = [0, 0]; S.pos = 0; S.total = 10; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
@@ -156,10 +156,11 @@
   function endPossession() {
     S.score = sim.score.slice(); S.pos++; S.box = sim.box.map(function (r) { return r.slice(); });
     S.plog = sim.events.slice(evStart).filter(function (x) { return x.kind !== 'i' || /breaks down/.test(x.txt); }).map(function (x) { return x.txt; }).slice(-7);
-    var ls = sim.lastShot; S.look = null;
+    var ls = sim.lastShot; S.look = null; S.hist = S.hist || [];
     if (ls) { var kind = { three: 'three', rim: 'shot at the rim', 'short': 'short shot', mid: 'mid-range jumper' }[ls.type], open = ls.d1 >= 6 ? 'Wide open' : ls.d1 >= 4 ? 'Open' : ls.d1 >= 2.5 ? 'Contested' : 'Heavily contested';
       S.look = { txt: open + ' ' + kind + ' for ' + ls.who + ': a ' + Math.round(ls.pm * 100) + '% look' + (ls.d1 < 6 && ls.by ? ', ' + ls.by + ' ' + Math.max(1, Math.round(ls.d1)) + ' ft away.' : '.'), good: ls.pm * (ls.type === 'three' ? 3 : 2) >= 1.05 }; }
     if (S.now) { S.scout = S.scout || [{}, {}]; S.scout[S.off].off = S.now.off; S.scout[1 - S.off].def = S.now.def; S.scout[S.off].res = S.flash ? S.flash.txt : ''; }
+    S.hist.push({ t: S.off, r: S.flash ? S.flash.txt : '', l: S.look ? S.look.txt : (S.flash && S.flash.sub) || '', run: S.now ? S.now.off : '' }); if (S.hist.length > 16) S.hist.shift();
     if (S.pos >= S.total) {
       if (S.score[0] === S.score[1]) { S.total += 2; S.ot = true; S.log.push('Tied after regulation. One more possession each.'); }
       else { S.phase = 'final'; clearGame(); changed(); return; }
@@ -933,7 +934,7 @@
   function updateLive() {
     var t = $('#toasttxt'); if (!t) return;
     t.textContent = lastLine(); var pv = $('#toastprev'); if (pv) pv.textContent = S.log.length > 1 ? S.log[S.log.length - 2] : '';
-    var fd = $('#feedlist'); if (fd) { fd.className = S.off === 0 ? 'top' : 'bot'; fd.textContent = ''; S.log.slice(-5, -1).forEach(function (l) { add(fd, h('div', { text: l })); }); }
+    var fd = $('#feedlist'); if (fd) { fd.className = 'bot'; fd.textContent = ''; S.log.slice(-5, -1).forEach(function (l) { add(fd, h('div', { text: l })); }); }
     var fl = $('#flash'); if (fl) { if (S.flash) { fl.textContent = S.flash.txt; fl.className = 'on t' + S.flash.team; } else fl.className = ''; }
     var hint = $('#livehint');
     if (ui.call) { hint.textContent = ui.call.steps[ui.call.got.length].split(':')[1] + '.'; hint.classList.add('on'); } else hint.classList.remove('on');
@@ -1043,15 +1044,15 @@
     for (i = 0; i < f.length; i++) { var isPos = (i >= 1 && i <= 3) || (i >= 5 && i < 35 && (i - 5) % 3 < 2); viewCur[i] = isPos && Math.abs(f[i] - viewCur[i]) < 150 ? viewCur[i] + (f[i] - viewCur[i]) * k : f[i]; }
     var v = viewCur, bx = v[1] / 10, by = v[2] / 10, bz = v[3] / 10, holder = v[4];
     // camera: whole court while the ball comes up, then the attacking half, using all the height the screen has
-    var hp = E.hoop(S.off).y, span = Math.min(98, Math.max(52, H / (W / 54))), tgt = hp > 47 ? [96 - span, 96] : [-2, -2 + span]; if (cam && Math.abs(cam[0] - tgt[0]) > 20) cam = null; // always the half court being attacked
-    if (!cam) cam = tgt.slice(); cam[0] += (tgt[0] - cam[0]) * 0.07; cam[1] += (tgt[1] - cam[1]) * 0.07;
-    var s = Math.min(W / 54, H / (cam[1] - cam[0])), cx = W / 2, cy = H / 2, my = (cam[0] + cam[1]) / 2;
-    ui.map = { s: s, inv: function (px, py) { return { x: 25 + (px - cx) / s, y: my + (py - cy) / s }; } };
+    // the attacking half court, always drawn with the hoop at the top so it matches the play diagrams
+    var hp = E.hoop(S.off).y, span = 51, fl2 = hp > 47 ? -1 : 1, s = Math.min(W / 54, H / span), cx = W / 2, cy = span / 2 * s, my = hp > 47 ? 96 - span / 2 : -2 + span / 2;
+    ui.map = { s: s, inv: function (px, py) { return { x: 25 + fl2 * (px - cx) / s, y: my + fl2 * (py - cy) / s }; } };
     var ctx = cv.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#2a3240'; ctx.fillRect(0, 0, W, H);
-    ctx.setTransform(s, 0, 0, s, cx - 25 * s, cy - my * s); drawCourtLines(ctx);
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, span * s); ctx.clip();
+    ctx.setTransform(fl2 * s, 0, 0, fl2 * s, cx - fl2 * 25 * s, cy - fl2 * my * s); drawCourtLines(ctx); ctx.restore();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    function X(x) { return cx + (x - 25) * s; } function Y(y) { return cy + (y - my) * s; }
+    function X(x) { return cx + fl2 * (x - 25) * s; } function Y(y) { return cy + fl2 * (y - my) * s; }
     var r = Math.max(9 * dpr, 1.75 * s), zoom = s / dpr > 5.2, pick = ui.call ? ui.call.steps[ui.call.got.length].split(':')[0] : null;
     var defT = 1 - S.off, showM = v.length >= 40 && v[35] >= 0 && (S.mode === 'local' ? !!ui.call && ui.call.team === defT : me === defT);
     if (showM) { // who guards whom
@@ -1131,6 +1132,9 @@
       S.box ? h('.card', [0, 1].map(function (t) {
         return h('table.box', h('thead', h('tr', h('th', h('span.tag.t' + t, { text: TEAM[t] })), ['PTS', 'REB', 'AST', 'FG', 'STL', 'TO'].map(function (x) { return h('th', { text: x }); }))),
           h('tbody', S.lineup[t].map(function (id, i) { var b = S.box[t * 5 + i] || [0, 0, 0, 0, 0, 0, 0]; return h('tr', h('td', { text: P(id).tag }), [b[0], b[1], b[2], b[3] + '/' + b[4], b[5], b[6]].map(function (x) { return h('td', { text: x }); })); })));
+      })) : null,
+      S.hist && S.hist.length ? h('details.card.recap', h('summary', h('h3', { text: 'Possession by possession' })), S.hist.map(function (x, n) {
+        return h('.hrow', h('span.ovr', { text: n + 1 }), h('div', h('b.t' + x.t, { text: TEAM[x.t] + ': ' + x.r }), h('p.note', { text: (x.run ? 'Ran ' + x.run + '. ' : '') + x.l })));
       })) : null,
       canRestart ? h('button.btn.primary', { text: 'Rematch, same teams', onclick: function () { saved = { off: [null, null], def: [null, null] }; startMatch(); changed(); } }) : h('p.note', { text: 'The host can start a rematch or a new draft.' }),
       canRestart ? h('button.btn', { text: 'New draft', onclick: startDraft }) : null);
