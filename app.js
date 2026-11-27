@@ -31,7 +31,7 @@
   // ---------- state ----------
   var PROTO = 4; // bump only when the two phones can no longer talk to each other
   function uid() { return Math.random().toString(36).slice(2, 10); }
-  function fresh() { return { proto: PROTO, build: window.SIDELINE_BUILD || '', phase: 'home', mode: 'local', code: '', picks: [[], []], lineup: [[], []], turn: 0, pos: 0, total: 10, off: 1, score: [0, 0], done: [false, false], log: [], guest: false, ot: false }; }
+  function fresh() { return { proto: PROTO, build: window.SIDELINE_BUILD || '', phase: 'home', mode: 'local', code: '', picks: [[], []], lineup: [[], []], turn: 0, pos: 0, total: 14, off: 1, score: [0, 0], done: [false, false], log: [], guest: false, ot: false }; }
   var S = fresh(), me = 0, auth = true, sim = null, pend = [null, null];
   var saved = { off: [null, null], def: [null, null] };
   var ui = { localStep: 0, sort: 'ovr', call: null, cool: [0, 0], built: '', fo: null, fd: null, err: '', sentPos: -1, tab: null };
@@ -107,7 +107,7 @@
     changed();
   }
   function startMatch() {
-    S.score = [0, 0]; S.pos = 0; S.total = 10; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
+    S.score = [0, 0]; S.pos = 0; S.total = 14; S.ot = false; S.off = 1; S.flash = null; S.hist = []; S.scout = null; S.look = null; S.plog = null; S.now = null; S.log = ['Tip-off. ' + TEAM[1] + ' picked second, so ' + TEAM[1] + ' gets the ball first.'];
     sim = new E.Sim([S.lineup[0].map(P), S.lineup[1].map(P)], (Date.now() % 100000) + 1); sim.begin(S.off); evSeen = 0;
     toCoach();
   }
@@ -162,7 +162,7 @@
     if (ls) { var kind = { three: 'three', rim: 'shot at the rim', 'short': 'short shot', mid: 'mid-range jumper' }[ls.type], open = ls.d1 >= 6 ? 'Wide open' : ls.d1 >= 4 ? 'Open' : ls.d1 >= 2.5 ? 'Contested' : 'Heavily contested';
       S.look = { txt: open + ' ' + kind + ' for ' + ls.who + ': a ' + Math.round(ls.pm * 100) + '% look' + (ls.d1 < 6 && ls.by ? ', ' + ls.by + ' ' + Math.max(1, Math.round(ls.d1)) + ' ft away.' : '.'), good: ls.pm * (ls.type === 'three' ? 3 : 2) >= 1.05 }; }
     if (S.now) { S.scout = S.scout || [{}, {}]; S.scout[S.off].off = S.now.off; S.scout[1 - S.off].def = S.now.def; S.scout[S.off].res = S.flash ? S.flash.txt : ''; }
-    S.hist.push({ t: S.off, r: S.flash ? S.flash.txt : '', l: S.look ? S.look.txt : (S.flash && S.flash.sub) || '', run: S.now ? S.now.off : '' }); if (S.hist.length > 16) S.hist.shift();
+    S.hist.push({ t: S.off, r: S.flash ? S.flash.txt : '', l: S.look ? S.look.txt : (S.flash && S.flash.sub) || '', run: S.now ? S.now.off : '' }); if (S.hist.length > 24) S.hist.shift();
     if (S.pos >= S.total) {
       if (S.score[0] === S.score[1]) { S.total += 2; S.ot = true; S.log.push('Tied after regulation. One more possession each.'); }
       else { S.phase = 'final'; clearGame(); changed(); return; }
@@ -351,7 +351,7 @@
     var mid;
     if (S.phase === 'draft') mid = h('.mid', 'Draft', h('strong', { text: (S.picks[0].length + S.picks[1].length) + ' / 10' }));
     else if (S.phase === 'final') mid = h('.mid', 'Final', h('strong', { text: S.ot ? 'OT' : 'Full time' }));
-    else mid = h('.mid', S.pos >= 10 ? 'Overtime' : 'Possession', h('strong', { text: Math.min(S.pos + 1, S.total) + ' / ' + S.total }));
+    else mid = h('.mid', S.ot && S.pos >= 14 ? 'Overtime' : 'Possession', h('strong', { text: Math.min(S.pos + 1, S.total) + ' / ' + S.total }));
     function tm(t) { return h('.tm' + (t ? '.r' : '') + ((S.phase === 'coach' || S.phase === 'live') && S.off === t ? '.has' : ''), t ? [h('span.ballmark'), h('span', { text: TEAM[t] }), h('b', { text: S.score[t] })] : [h('b', { text: S.score[t] }), h('span', { text: TEAM[t] }), h('span.ballmark')]); }
     var a = tm(0), b = tm(1); a.style.color = '#8fb6ff'; b.style.color = '#ff9a90';
     add(hud, [a, mid, b]);
@@ -366,7 +366,7 @@
         h('div', h('span', { text: 'Draft 5 players each, taking turns.' })),
         h('div', h('span', { text: 'Before every possession both coaches set up in secret: offense picks a style and up to two plays, defense picks a scheme and matchups.' })),
         h('div', h('span', { text: 'Tap Done and the possession runs live. Both coaches can make quick calls while it plays.' })),
-        h('div', h('span', { text: '10 possessions, 5 each. Tied at the end means one more each.' })))),
+        h('div', h('span', { text: '14 possessions, 7 each. Tied at the end means one more each.' })))),
       (function () {
         var g = savedGame(); if (!g) return null;
         return h('.card', h('h3', { text: 'Game in progress' }), h('p', { text: TEAM[0] + ' ' + g.S.score[0] + ', ' + TEAM[1] + ' ' + g.S.score[1] + '. Possession ' + Math.min(g.S.pos + 1, g.S.total) + ' of ' + g.S.total + (g.S.mode === 'host' ? '. Two phones, code ' + g.S.code + '.' : '. One phone.') }),
@@ -1247,7 +1247,7 @@
     return h('.pad',
       h('span.tag.t' + w, { text: TEAM[w] + ' wins' }),
       h('.big', { text: S.score[0] + ' - ' + S.score[1] }),
-      h('p.muted', { text: S.ot ? 'Decided in overtime.' : 'Final after 10 possessions.' }),
+      h('p.muted', { text: S.ot ? 'Decided in overtime.' : 'Final after 14 possessions.' }),
       S.box ? h('.card', [0, 1].map(function (t) {
         return h('table.box', h('thead', h('tr', h('th', h('span.tag.t' + t, { text: TEAM[t] })), ['PTS', 'REB', 'AST', 'FG', 'STL', 'TO'].map(function (x) { return h('th', { text: x }); }))),
           h('tbody', S.lineup[t].map(function (id, i) { var b = S.box[t * 5 + i] || [0, 0, 0, 0, 0, 0, 0]; return h('tr', h('td', { text: P(id).tag }), [b[0], b[1], b[2], b[3] + '/' + b[4], b[5], b[6]].map(function (x) { return h('td', { text: x }); })); })));

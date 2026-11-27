@@ -201,7 +201,7 @@ h4 { font-family: var(--f-display); font-size: 14px; font-weight: 600; text-tran
    (bypassing the cache) which build is current, reloads if this page is older, and loads the game files
    under that build's name so a stale copy can never be used. */
 (function () {
-  var BUILD = 'Nov 26 18:48'; window.SIDELINE_BUILD = BUILD;
+  var BUILD = 'Nov 26 18:51'; window.SIDELINE_BUILD = BUILD;
   function load(v) {
     var files = ['data.js', 'engine.js', 'app.js'], i = 0;
     (function next() { if (i >= files.length) return; var s = document.createElement('script'); s.src = files[i++] + '?v=' + encodeURIComponent(v); s.onload = next; s.onerror = next; document.body.appendChild(s); })();
