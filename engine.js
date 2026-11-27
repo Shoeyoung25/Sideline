@@ -788,7 +788,7 @@
     var cov = onBall ? (rs ? 'switch' : d.cover) : (d.style === 'switch' || rs ? 'switch' : 'fight');
     if (cov === 'switch' && D2 && D2 !== D) { var a = d.assign[D.slot]; d.assign[D.slot] = d.assign[D2.slot]; d.assign[D2.slot] = a; D.tx = S.x; D.ty = S.y; D2.tx = U.x; D2.ty = U.y; d.contest[D.slot] = t + 2.5; this.tag(2, D2); D2.imm[S.slot] = t + 2.8; this.nScr = (this.nScr || 0) + 1; return; }
     this.nScr = (this.nScr || 0) + 1; this.tag(cov === 'trap' ? 8 : 1, D);
-    if (!onBall) D.stun = Math.max(D.stun, clamp(0.28 + (S.r.str - D.r.str) / 150, 0.12, 0.6));
+    if (!onBall) D.stun = Math.max(D.stun, clamp(0.2 + (S.r.str - D.r.str) / 150, 0.1, 0.5));
     else if (cov === 'drop') { D.stun = Math.max(D.stun, 0.3); if (D2) { D2.mode = 'drop'; D2.modeUntil = t + 2.0; } }
     else if (cov === 'hedge') { D.stun = Math.max(D.stun, 0.25); if (D2) { D2.mode = 'hedge'; D2.modeUntil = t + 0.9; } }
     else if (cov === 'trap') { D.stun = Math.max(D.stun, 0.2); d.dbl = { o: U.slot, until: t + 2.6 }; d.dblBy = D2 ? D2.slot : -1; }
@@ -802,7 +802,11 @@
         if (u === s) continue;
         var U = this.op(u); if (pd(U, S) > 4.2 || (U.vx * U.vx + U.vy * U.vy) < 16) continue;
         var G = this.guardOf(U); if (!G || pd(G, U) > 12) continue;
+        var blk = segDist(S.x, S.y, G.x, G.y, U.x, U.y), near = pd(G, S);
+        if (blk > 2.7 && near > 3.2) continue; // he has a clear line to his man: the screen missed him
+        var s0 = G.stun, mS = (S.r.wgt || 215) * (1 + S.r.str / 200), mG = (G.r.wgt || 215) * (1 + G.r.str / 200);
         this.applyScreen(G, S, U, H, zone);
+        if (G.stun > s0) { var sq = clamp(1.15 - Math.min(blk, near) / 2.7 * 0.6, 0.5, 1.15), mf = clamp(1 + (mS - mG) / 520, 0.8, 1.3); G.stun = s0 + (G.stun - s0) * sq * mf; }
       }
     }
   };
@@ -828,7 +832,10 @@
           var px = gx - p.x, py = gy - p.y, pl = Math.sqrt(px * px + py * py); if (pl < 2.5 || sx * px + sy * py <= 0) continue;
           if (segDist(S.x, S.y, p.x, p.y, gx, gy) > 2.5) continue;
           var cr = px * sy - py * sx, nx2 = (cr > 0 ? py : -py) / pl, ny2 = (cr > 0 ? -px : px) / pl;
-          gx = S.x + nx2 * 3.2; gy = S.y + ny2 * 3.2; v *= 0.78; break;
+          var man = this.op(this.d.assign[p.slot]), prs = man ? (this.d.ppRule[man.slot] || this.d.pp[man.slot] || this.d.press) : 'normal', hpS = hoop(this.offTeam);
+          var over = prs === 'tight' || prs === 'deny' || (prs !== 'sag' && man && man.r.three >= 82), c1x = S.x + nx2 * 3.2, c1y = S.y + ny2 * 3.2, c2x = S.x - nx2 * 3.2, c2y = S.y - ny2 * 3.2;
+          var c1Under = dist(c1x, c1y, hpS.x, hpS.y) < dist(c2x, c2y, hpS.x, hpS.y), useC1 = over ? !c1Under : c1Under;
+          gx = useC1 ? c1x : c2x; gy = useC1 ? c1y : c2y; v *= over ? 0.74 : 0.86; break;
         }
       }
       var dx = gx - p.x, dy = gy - p.y, l0 = Math.sqrt(dx * dx + dy * dy), ox = p.x, oy = p.y;
