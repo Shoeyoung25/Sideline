@@ -27,7 +27,12 @@
   // The order here is the order of BB.BADGES in data.js: a badge's place in the list is its on-court tag code minus 30.
   var BADGE_IDS = 'ded lim mini saf arc stm smo pfp flo lmx pai phy pph hok pos ris aer ank dim vv bail unp shd lit cha sea abr glv int pkd obp pat wal pld imm hfd box clo cra brk bwl sli clu mic cor gia mis pnr zon flg ace'.split(' ');
   var BIX = {}; BADGE_IDS.forEach(function (id, i) { BIX[id] = i; });
-  var BF = [0, 0.4, 0.7, 1, 1.35]; // how much of a badge's full effect each tier gives: none, Bronze, Silver, Gold, Hall of Fame
+  var BF = [0, 0.4, 0.7, 1, 1.25]; // how much of a badge's full effect each tier gives: none, Bronze, Silver, Gold, Hall of Fame
+  function stackCut(v) { // how much of a pile of bonuses to take back
+    if (!v.length) return 0; v.sort(function (a, b) { return b - a; });
+    var sum = 0, kept = 0, w = 1, i; for (i = 0; i < v.length; i++) { sum += v[i]; kept += v[i] * w; w *= 0.5; }
+    return sum - Math.min(kept, 0.05);
+  }
   function bg(p, id) { var b = p && p.r.b; return b && !E.noBadges ? BF[b[id] || 0] : 0; }
   function Sim(teams, seed) {
     this.rand = mulberry(seed || 1);
@@ -149,12 +154,12 @@
     if (type === 'rim') {
       pm = 0.575 + (r.ins - 75) * 0.006;
       var rc1 = rimC(n1, d1), rc2 = (this.d && this.d.style === 'zone' ? 0.9 : this.d && this.d.help === 'help' ? 0.85 : 0.5) * rimC(n2, d2);
-      if (rc1 > 0 && n1) { x = rc1 * 0.12 * bg(n1, 'pat'); rc1 += x; add(n1, 'pat', x); }
-      if (rc2 > 0 && n2) rc2 *= 1 + 0.12 * bg(n2, 'pat');
+      if (rc1 > 0 && n1) { x = rc1 * 0.22 * bg(n1, 'pat'); rc1 += x; add(n1, 'pat', x); }
+      if (rc2 > 0 && n2) rc2 *= 1 + 0.22 * bg(n2, 'pat');
       if (d1 < 3.6 && n1) {
         x = rc1 * 0.1 * bg(p, 'lmx'); rc1 -= x; add(p, 'lmx', x);
         x = rc1 * 0.09 * bg(p, 'phy'); rc1 -= x; add(p, 'phy', x + 0.004 * bg(p, 'phy'));
-        x = 0.012 * bg(n1, 'wal'); rc1 += x; add(n1, 'wal', x);
+        x = 0.02 * bg(n1, 'wal'); rc1 += x; add(n1, 'wal', x);
       }
       pm -= rc1 + rc2;
       if (p.dribbled && d1 < 4) pm += add(p, 'pos', 0.012 * bg(p, 'pos'));
@@ -168,7 +173,7 @@
       if (d1 < 3.6) pf = 0.11 + Math.min(0.1, r.fta * 0.011) + 0.015 * bg(p, 'phy') - 0.012 * bg(n1, 'wal');
     } else {
       var base;
-      if (type === 'three') base = 0.336 + (r.three - 70) * 0.0043 - Math.max(0, d - 26) * 0.012 * (1 - 0.6 * Math.min(1, bg(p, 'lim'))) - (this.d && this.d.style === 'zone' ? this.zoneCover(p) * (1 - 0.3 * bg(p, 'zon')) : 0); // zone closeouts arrive late but arrive: the model's rotations are slower than a real zone's
+      if (type === 'three') base = 0.336 + (r.three - 70) * 0.0043 - Math.max(0, d - 26) * 0.012 + clamp(d - 26, 0, 4) * 0.012 * 0.6 * Math.min(1, bg(p, 'lim')) - (this.d && this.d.style === 'zone' ? this.zoneCover(p) * (1 - 0.3 * bg(p, 'zon')) : 0); // zone closeouts arrive late but arrive: the model's rotations are slower than a real zone's
       else if (type === 'short') base = 0.43 + (r.ins - 75) * 0.004;
       else base = 0.40 + (r.mid - 76) * 0.004;
       var c = 0, pm0 = 0;
@@ -176,12 +181,12 @@
       else {
         c = Math.pow(1 - Math.max(0, d1 - 1.8) / 4.2, 0.62) * clamp(0.17 + (n1.r.pd - 60) / 40 * 0.07 + (n1.r.size - r.size) * 0.021, 0.05, 0.3);
         x = c * 0.14 * bg(p, 'ded'); c -= x; add(p, 'ded', x);
-        x = c * 0.12 * bg(n1, 'cha'); c += x; add(n1, 'cha', x);
+        x = c * 0.25 * bg(n1, 'cha'); c += x; add(n1, 'cha', x);
         if (d1 < 5 && n1.r.hgt - r.hgt >= 3) pm0 += add(p, 'mini', 0.014 * bg(p, 'mini'));
       }
       pm = base - c + pm0;
       if (type === 'three') {
-        if (d > 26.5) add(p, 'lim', Math.max(0, d - 26) * 0.012 * 0.6 * Math.min(1, bg(p, 'lim')));
+        if (d > 26.5) add(p, 'lim', clamp(d - 26, 0, 4) * 0.012 * 0.6 * Math.min(1, bg(p, 'lim')));
         pm += p.dribbled ? add(p, 'arc', 0.016 * bg(p, 'arc')) : add(p, 'saf', 0.014 * bg(p, 'saf'));
         if (Math.abs(h.hx) >= 20 && h.hy < 14.5) pm += add(p, 'cor', 0.016 * bg(p, 'cor'));
       } else if (type === 'mid') pm += p.dribbled ? add(p, 'smo', 0.018 * bg(p, 'smo')) : add(p, 'stm', 0.014 * bg(p, 'stm'));
@@ -203,7 +208,7 @@
     }
     if (n1 && d1 < 5) {
       if (Math.abs(n1.r.size - r.size) >= 0.8) pm += add(p, 'mis', 0.014 * bg(p, 'mis'));
-      if (this.aceOf === p.i) { x = 0.014 * bg(n1, 'ace'); pm -= x; add(n1, 'ace', x); }
+      if (this.aceOf === p.i) { x = 0.024 * bg(n1, 'ace'); pm -= x; add(n1, 'ace', x); }
     }
     pm += 0.025 * Math.min(2, Math.max(0, ((this.hot || {})[p.i] || 0) - 1)); // a shooter who has made two straight is feeling it
     var sp0 = this.d ? this.d.spots : null;
@@ -211,6 +216,10 @@
     if (this.o && this.o.read) pm -= 0.03 * this.o.read;
     if (this.o && this.o.fooled) pm += 0.075; // the defense guessed the wrong play and is leaning the wrong way // a call the defense has seen coming: every look is a little tougher
     if (this.clutch) pm += (r.cmp - 75) * 0.003; // late and close: composure shows
+    if (cr.length > 1) { // badges on one shot do not simply add up: the best counts in full, the next for half, the next a quarter. Each side tops out near five points
+      var so = [], sdv = [], ci; for (ci = 0; ci < cr.length; ci++) (this.P[cr[ci][0]].team === this.offTeam ? so : sdv).push(cr[ci][2]);
+      var co = stackCut(so), cd = stackCut(sdv); pm -= co; pm += cd; cr.cut = [co, cd];
+    }
     pm = clamp(pm, 0.08, 0.92);
     var ev = (1 - pf) * pm * pts + pf * 2 * r.ft;
     return { ev: ev, pm: pm, pts: pts, pf: pf, type: type, d1: d1, n1: n1, dist: d, cr: cr };
@@ -360,10 +369,9 @@
     if (post) p = 0.42 + ((H.r.ins + H.r.str * 0.5 + H.r.size * 4) - (G.r.rim + G.r.str * 0.5 + G.r.size * 4)) / 140 - (d.style === 'zone' ? 0.16 : 0) + 0.04 * bg(H, 'pph') - 0.04 * bg(G, 'pld');
     else {
       p = 0.36 + clamp(((H.r.hnd * 0.6 + H.r.spd * 0.4) - (G.r.pd * 0.65 + G.r.spd * 0.35)) / 110, -0.17, 0.17) + clamp((H.r.str - G.r.str) / 500, -0.035, 0.04) * (H.r.str > G.r.str ? 1 - 0.7 * Math.min(1, bg(G, 'imm')) : 1);
-      p += 0.035 * Math.max(0, bg(H, 'ank') - 0.7 * bg(G, 'abr')) + 0.02 * bg(H, 'lit') - 0.035 * bg(G, 'sea');
-      if (Math.abs(G.r.size - H.r.size) >= 0.8) p += 0.03 * bg(H, 'mis');
-      if (this.t - (this.o.lastBallScreen || -9) < 3) p += 0.03 * bg(H, 'pnr');
-      if (this.aceOf === H.i) p -= 0.02 * bg(G, 'ace');
+      var bo = [0.035 * Math.max(0, bg(H, 'ank') - 0.7 * bg(G, 'abr')), 0.02 * bg(H, 'lit'), Math.abs(G.r.size - H.r.size) >= 0.8 ? 0.03 * bg(H, 'mis') : 0, this.t - (this.o.lastBallScreen || -9) < 3 ? 0.03 * bg(H, 'pnr') : 0];
+      var bd = [0.04 * bg(G, 'sea'), this.aceOf === H.i ? 0.025 * bg(G, 'ace') : 0];
+      p += bo[0] + bo[1] + bo[2] + bo[3] - stackCut(bo) - (bd[0] + bd[1] - stackCut(bd)); // the same rule as on shots: the best badge in full, the rest fading
       var pr = d.ppRule[H.slot] || d.pp[H.slot] || d.press;
       if (d.contest[G.slot] > this.t) p += 0.16; else if (pr === 'tight') p += 0.18; else if (pr === 'sag') p -= 0.2;
       var hp = hoop(this.offTeam), u = unit(G.x, G.y, H.x, H.y);
@@ -1039,7 +1047,7 @@
     return a;
   };
 
-  var E = { Sim: Sim, h2w: h2w, w2h: w2h, hoop: hoop, CW: CW, CL: CL, RIMY: RIMY, BADGE_IDS: BADGE_IDS, BADGE_BASE: 0.028 };
+  var E = { Sim: Sim, h2w: h2w, w2h: w2h, hoop: hoop, CW: CW, CL: CL, RIMY: RIMY, BADGE_IDS: BADGE_IDS, BADGE_BASE: 0.022 };
   root.BBEngine = E;
   if (typeof module !== 'undefined') module.exports = E;
 })(typeof window !== 'undefined' ? window : globalThis);
